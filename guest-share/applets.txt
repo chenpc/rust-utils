@@ -2,12 +2,14 @@ b2sum
 b3sum
 base32
 base64
+basename
 basenc
 cat
 cksum
 comm
 csplit
 cut
+dirname
 echo
 expand
 expr
@@ -16,6 +18,7 @@ fmt
 fold
 hashsum
 head
+init
 join
 md5sum
 mod
@@ -23,9 +26,13 @@ nl
 numfmt
 od
 paste
+pathchk
 printf
 ptx
+readlink
+realpath
 seq
+sh
 sha1sum
 sha224sum
 sha256sum

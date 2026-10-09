@@ -14,11 +14,19 @@ apps = root / "src" / "applets"
 names = sorted(p.stem for p in apps.glob("*.rs") if p.stem != "mod")
 
 def ident(n):
-    return f"r#{n}" if n in KEYWORDS else n
+    if n in KEYWORDS:
+        return f"r#{n}"
+    if not n.isidentifier():
+        return n.replace("-", "_")
+    return n
 
 mod_lines = ["//! applet 模組：每個 applet 一個檔案（src/applets/<name>.rs），行為依據是 man page。", ""]
 for n in names:
-    mod_lines.append(f"pub mod {ident(n)};")
+    idn = ident(n)
+    if idn != n:
+        mod_lines.append(f'#[path = "{n}.rs"] pub mod {idn};')
+    else:
+        mod_lines.append(f"pub mod {idn};")
 apps.joinpath("mod.rs").write_text("\n".join(mod_lines) + "\n")
 
 # 一個檔案可以對應多個 applet 名稱（例如 test.rs 同時提供 test 與 [）

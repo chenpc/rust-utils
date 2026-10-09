@@ -49,7 +49,7 @@ for a in "$@"; do args="$args $(printf '%q' "$a")"; done
 if [ -z "$args" ]; then args=" --test-threads=1"; fi
 
 cat > "$SHARE/tests/$id.sh" << EOF
-#!/bin/busybox sh
+#!/bin/sh
 export COREUTILS_BIN=/mnt/bin/coreutils
 export COREUTILS_WORK=/tmp
 export LLVM_PROFILE_FILE="/out/$id-%p.profraw"

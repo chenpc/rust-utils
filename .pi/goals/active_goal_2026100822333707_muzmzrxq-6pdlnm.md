@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 10462174,
-    "activeSeconds": 50372
+    "tokensUsed": 10710434,
+    "activeSeconds": 52970
   },
   "sisyphus": false,
   "createdAt": "2026-10-08T14:33:37.070Z",
-  "updatedAt": "2026-10-09T18:10:51.701Z",
+  "updatedAt": "2026-10-09T18:54:46.976Z",
   "activePath": ".pi/goals/active_goal_2026100822333707_muzmzrxq-6pdlnm.md",
-  "revision": 2148,
+  "revision": 2225,
   "scheduler": {
     "version": 1,
     "owner": "01a121c8-9ded-70f2-9481-e84ff96feb54",
@@ -101,8 +101,8 @@ Blocker 預設：先跳過該 applet、記錄到 logs/、繼續下一個；只�
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 13h59m32s
-- Tokens used: 10M (10,462,174) tokens
+- Time spent: 14h42m50s
+- Tokens used: 11M (10,710,434) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->

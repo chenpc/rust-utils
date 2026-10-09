@@ -5,7 +5,7 @@
 #   usage: ./scripts/run-shell.sh [-c 'command'] [--log FILE]
 #
 # guest 內有：
-#   /bin/busybox sh            shell
+#   /bin/sh                    我們的 shell（coreutils applet，argv0 分派）
 #   /bin/<applet>              每個 applet 的符號連結 → /mnt/bin/coreutils（multi-call）
 #   /mnt                     host 的 guest-share（唯讀 9p）
 #   /out                     host 的 guest-share/out（可寫 9p）
