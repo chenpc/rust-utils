@@ -110,8 +110,7 @@ pub fn finit_module(fd: i32) -> io::Result<()> {
     Ok(())
 }
 
-/// init_module(image, len, params)：SYS_init_module = 175 (x86_64)。
-/// 本 guest kernel 上 finit_module 回 ESRCH（實測），busybox insmod 用的是這條路徑。
+/// init_module(image, len, params)：SYS_init_module = 175 (x86_64)。/// 本 guest kernel 上 finit_module 回 ESRCH（實測），busybox insmod 用的是這條路徑。
 pub fn init_module(image: &[u8]) -> io::Result<()> {
     let empty = CString::new("").unwrap();
     let rc = unsafe {
@@ -129,6 +128,19 @@ pub fn init_module(image: &[u8]) -> io::Result<()> {
 }
 
 pub const RB_POWER_OFF: i32 = 0x4321fed2;
+
+/// pipe(2) 包裝：回 (read_end, write_end)。本工具鏈無 std::os::unix::pipe。
+pub fn anon_pipe() -> io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
+    extern "C" {
+        fn pipe(fds: *mut i32) -> i32;
+    }
+    let mut fds = [0i32; 2];
+    if unsafe { pipe(fds.as_mut_ptr()) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    use std::os::fd::FromRawFd;
+    Ok(unsafe { (std::os::fd::OwnedFd::from_raw_fd(fds[0]), std::os::fd::OwnedFd::from_raw_fd(fds[1])) })
+}
 
 /// poweroff(8)：直接 syscall reboot(169)（glibc reboot() 在本 guest 回 ENOSYS，實測）。
 /// 失敗時回 errno，呼叫者決定後續。

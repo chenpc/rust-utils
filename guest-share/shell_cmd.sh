@@ -1,1 +1,1 @@
-cat /proc/sys/kernel/real-root-only 2>/dev/null; cat /proc/sys/kernel/reboot-disabled 2>/dev/null; echo done-probe
+export CV=/mnt/bin/coreutils; echo hi | "$CV" cat > /tmp/sh_p1.txt; echo rc1=$?; echo p1=; "$CV" cat /tmp/sh_p1.txt; echo a | "$CV" tr a-z A-Z | "$CV" cat > /tmp/sh_p2.txt; echo p2=; "$CV" cat /tmp/sh_p2.txt; echo x | "$CV" cat

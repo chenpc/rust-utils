@@ -24,9 +24,13 @@ pub fn run(args: &[String], stdin: In<'_>, stdout: Out<'_>, stderr: Out<'_>) -> 
     let mut it = args.iter();
     let mut cmd_string: Option<String> = None;
     let mut script: Option<String> = None;
+    let mut forced_interactive = false;
+    let mut forced_script = false;
     while let Some(a) = it.next() {
         match a.as_str() {
             "-c" => cmd_string = it.next().cloned(),
+            "-i" => forced_interactive = true,
+            "-n" => forced_script = true,
             "-h" | "--help" => {
                 let _ = writeln!(
                     stdout,
@@ -52,7 +56,7 @@ pub fn run(args: &[String], stdin: In<'_>, stdout: Out<'_>, stderr: Out<'_>) -> 
         return run_script(&path, stdin, stdout, stderr);
     }
     let mut sh = new_interp(stdin, stdout, stderr);
-    if sys::stdin_is_tty() {
+    if !forced_script && (forced_interactive || sys::stdin_is_tty()) {
         return sh.interactive();
     }
     let mut text = String::new();
@@ -191,26 +195,12 @@ fn tokenize(src: &str) -> Result<Vec<Tok>, String> {
                 toks.push(Tok::Op("2>"));
                 i += 2;
             }
-            '\'' => {
-                let mut w = Vec::new();
-                i += 1;
-                let start = i;
-                while i < chars.len() && chars[i] != '\'' {
-                    i += 1;
-                }
-                if i >= chars.len() {
-                    return Err("unterminated '".to_string());
-                }
-                w.push(Seg::Lit(chars[start..i].iter().collect()));
-                i += 1;
-                toks.push(Tok::Word(w));
-            }
-            c if c == '"' || c == '$' || is_word_char(c) => {
+            c if c == '"' || c == '\'' || c == '$' || is_word_char(c) => {
                 let mut w: Vec<Seg> = Vec::new();
                 let mut cur = String::new();
                 while i < chars.len() {
                     let c = chars[i];
-                    if !is_word_char(c) && c != '"' && c != '$' {
+                    if !is_word_char(c) && c != '"' && c != '\'' && c != '$' {
                         break;
                     }
                     match c {
@@ -453,7 +443,8 @@ impl Parser {
             };
             self.pos += 1;
             self.skip_newlines();
-            let rhs = Box::new(self.parse_and_or()?);
+            // 左結合：rhs 只取單一 pipeline，避免 a && b || c 變成 a && (b || c)
+            let rhs = Box::new(Stmt::Pipe(self.parse_pipeline()?));
             lhs = Stmt::AndOr(Box::new(lhs), op, rhs);
         }
         Ok(lhs)
@@ -514,7 +505,10 @@ impl Parser {
                 _ => break,
             }
         }
-        while !self.at_list_end() && !matches!(self.toks.get(self.pos), Some(Tok::Op("|" | "&&" | "||")))
+        // 保留字只在 argv 空（命令位）時終止；`echo done` 的 done 是一般 arg
+        while self.pos < self.toks.len()
+            && !(self.at_list_end() && argv.is_empty())
+            && !matches!(self.toks.get(self.pos), Some(Tok::Op("|" | "&&" | "||")))
         {
             match &self.toks[self.pos] {
                 Tok::Word(segs) => {
@@ -722,8 +716,8 @@ impl<'a> Interp<'a> {
         let mut code = 0;
         for s in list {
             code = self.run_stmt(s)?;
+            self.last = code; // 語句間 $? 要即時更新
         }
-        self.last = code;
         Ok(code)
     }
 
@@ -744,9 +738,15 @@ impl<'a> Interp<'a> {
         if p.parts.len() == 1 {
             return self.run_cmd(&p.parts[0], &p.redirs);
         }
-        // 管線：外部命令用 OS pipe 串接；極簡限制 → 管線內不跑內建
+        // 管線：外部命令用 OS pipe 串接；內建用 std::os::unix::pipe 模擬（test guest 的
+        // /bin 沒有 applet symlink，純外部 echo 會 spawn 失敗）。
         let _ = &p.redirs;
-        let mut prev: Option<std::process::ChildStdout> = None;
+        enum Prev {
+            Child(std::process::ChildStdout),
+            Pipe(std::os::fd::OwnedFd),
+            Null,
+        }
+        let mut prev: Option<Prev> = None;
         let mut last_status = 0;
         let n = p.parts.len();
         for (idx, part) in p.parts.iter().enumerate() {
@@ -762,19 +762,88 @@ impl<'a> Interp<'a> {
                 }
             };
             let exe = self.expand_word(&argv[0]);
+            if builtin_names().contains(&exe.as_str()) {
+                // 內建：尾段直接跑（輸出去 stdout）；非尾段寫進 pipe 給下一個元素
+                if idx == n - 1 {
+                    let _ = prev.take();
+                    // 套用管線級重導向：暫時換掉 interp 串流
+                    let mut saved_out: Option<Box<dyn std::io::Write>> = None;
+                    let mut saved_err: Option<Box<dyn std::io::Write>> = None;
+                    for r in &p.redirs {
+                        let f = self.open_out(r)?;
+                        match r.op {
+                            ">" | ">>" => {
+                                if saved_out.is_none() {
+                                    saved_out =
+                                        Some(std::mem::replace(&mut self.out, Box::new(f)));
+                                }
+                            }
+                            "2>" => {
+                                if saved_err.is_none() {
+                                    saved_err =
+                                        Some(std::mem::replace(&mut self.err, Box::new(f)));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    last_status = match self.run_cmd(part, &[]) {
+                        Ok(c) => c,
+                        Err(c) => c,
+                    };
+                    if let Some(old) = saved_out {
+                        self.out = old;
+                    }
+                    if let Some(old) = saved_err {
+                        self.err = old;
+                    }
+                    continue;
+                }
+                let (rx, tx) = match crate::sys::anon_pipe() {
+                    Ok(v) => v,
+                    Err(_) => return Ok(2),
+                };
+                let saved = std::mem::replace(&mut self.out, Box::new(std::fs::File::from(tx)));
+                let code = match self.run_cmd(part, &[]) {
+                    Ok(c) => c,
+                    Err(c) => c,
+                };
+                self.out = saved; // drop sender → 下游 EOF
+                last_status = code;
+                prev = Some(Prev::Pipe(rx));
+                continue;
+            }
             let mut cmd = Command::new(&exe);
             for a in &argv[1..] {
                 cmd.arg(self.expand_word(a));
             }
+            let mut redir_out = false;
             for r in redirs {
                 let _ = self.apply_redir(&mut cmd, r)?;
+                if matches!(r.op, ">" | ">>") {
+                    redir_out = true;
+                }
+            }
+            if idx == n - 1 {
+                for r in &p.redirs {
+                    let _ = self.apply_redir(&mut cmd, r)?;
+                    match r.op {
+                        ">" | ">>" => redir_out = true,
+                        _ => {}
+                    }
+                }
             }
             match prev.take() {
-                Some(o) => cmd.stdin(Stdio::from(o)),
+                Some(Prev::Child(o)) => cmd.stdin(Stdio::from(o)),
+                Some(Prev::Pipe(r)) => cmd.stdin(Stdio::from(r)),
+                // 前一元素失敗：給 null，不讓下游讀 console 卡死
+                Some(Prev::Null) => cmd.stdin(Stdio::null()),
                 None => cmd.stdin(Stdio::inherit()),
             };
             if idx == n - 1 {
-                cmd.stdout(Stdio::inherit());
+                if !redir_out {
+                    cmd.stdout(Stdio::inherit());
+                }
             } else {
                 cmd.stdout(Stdio::piped());
             }
@@ -783,11 +852,11 @@ impl<'a> Interp<'a> {
                 Err(e) => {
                     let _ = writeln!(self.err, "sh: {exe}: {e}");
                     last_status = 127;
-                    prev = None;
+                    prev = Some(Prev::Null);
                     continue;
                 }
             };
-            prev = child.stdout.take();
+            prev = child.stdout.take().map(Prev::Child);
             last_status = child
                 .wait()
                 .map(|s| s.code().unwrap_or(1))
@@ -799,7 +868,7 @@ impl<'a> Interp<'a> {
     fn open_out(&mut self, r: &Redir) -> Result<std::fs::File, i32> {
         let path = self.expand_word(&r.file);
         let opened = match r.op {
-            ">" => std::fs::OpenOptions::new()
+            ">" | "2>" => std::fs::OpenOptions::new()
                 .create(true)
                 .truncate(true)
                 .write(true)
@@ -894,7 +963,21 @@ impl<'a> Interp<'a> {
         match cmd.spawn().and_then(|mut c| c.wait()) {
             Ok(s) => Ok(s.code().unwrap_or(1)),
             Err(e) => {
-                let _ = writeln!(self.err, "sh: {name}: {e}");
+                // spawn 失敗的錯誤訊息：若本命令有 2> 重導向 → 寫進目標檔（POSIX）
+                let msg = format!("sh: {name}: {e}");
+                let mut wrote = false;
+                for r in redirs.iter().chain(outer.iter()) {
+                    if r.op == "2>" {
+                        if let Ok(mut f) = self.open_out(r) {
+                            let _ = writeln!(f, "{msg}");
+                            wrote = true;
+                            break;
+                        }
+                    }
+                }
+                if !wrote {
+                    let _ = writeln!(self.err, "{msg}");
+                }
                 Ok(127)
             }
         }
@@ -1014,23 +1097,24 @@ impl<'a> Interp<'a> {
                     .unwrap_or(self.last);
                 Err(code)
             }
-            "[" | "test" => Ok(test_builtin(name, args)),
+            "[" | "test" => {
+                let inner: &[String] = if name == "[" {
+                    match args.last().map(String::as_str) {
+                        Some("]") => &args[..args.len() - 1],
+                        _ => {
+                            let _ = writeln!(self.err, "sh: {name}: missing ]");
+                            return Ok(2);
+                        }
+                    }
+                } else {
+                    args
+                };
+                let strs: Vec<&str> = inner.iter().map(String::as_str).collect();
+                Ok((!test_expr(&strs)) as i32) // shell 慣例：真→0、假→1
+            }
             _ => Ok(0),
         }
     }
-}
-
-fn test_builtin(name: &str, args: &[String]) -> i32 {
-    let args: Vec<&str> = if name == "[" {
-        if args.last().map(String::as_str) != Some("]") {
-            eprintln!("[: missing ]");
-            return 2;
-        }
-        args[..args.len() - 1].iter().map(String::as_str).collect()
-    } else {
-        args.iter().map(String::as_str).collect()
-    };
-    test_expr(&args) as i32
 }
 
 /// -o / -a / 括號（頂層，先切 -o 再切 -a）。
@@ -1038,20 +1122,49 @@ fn test_expr(a: &[&str]) -> bool {
     if a.is_empty() {
         return false;
     }
-    if let Some(p) = find_op(a, "-o") {
+    // 外層括號若涵蓋整個表達式 → 剝掉再遞迴
+    if a[0] == "(" {
+        let mut depth = 0usize;
+        for (i, x) in a.iter().enumerate() {
+            match *x {
+                "(" => depth += 1,
+                ")" => {
+                    depth -= 1;
+                    if depth == 0 {
+                        if i + 1 == a.len() {
+                            return test_expr(&a[1..i]);
+                        }
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    // 深度 0 才切 -o / -a（括號內的先由遞迴處理）
+    if let Some(p) = find_op_depth0(a, "-o") {
         return test_expr(&a[..p]) || test_expr(&a[p + 1..]);
     }
-    if let Some(p) = find_op(a, "-a") {
+    if let Some(p) = find_op_depth0(a, "-a") {
         return test_expr(&a[..p]) && test_expr(&a[p + 1..]);
-    }
-    if a.len() >= 3 && a[0] == "(" && a[a.len() - 1] == ")" {
-        return test_expr(&a[1..a.len() - 1]);
     }
     eval_atom(a)
 }
 
-fn find_op(a: &[&str], op: &str) -> Option<usize> {
-    a.iter().position(|x| *x == op)
+fn find_op_depth0(a: &[&str], op: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, x) in a.iter().enumerate() {
+        match *x {
+            "(" => depth += 1,
+            ")" => depth = depth.saturating_sub(1),
+            _ => {
+                if depth == 0 && *x == op {
+                    return Some(i);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn eval_atom(a: &[&str]) -> bool {
@@ -1154,7 +1267,15 @@ pub fn completion(
         Some((d, p)) => (format!("{d}/"), p.to_string()),
         None => (String::new(), word.to_string()),
     };
-    let lookup_dir = if word.contains('/') { &dir[..dir.len() - 1] } else { "." };
+    let lookup_dir = if word.contains('/') {
+        if dir == "/" {
+            "/"
+        } else {
+            &dir[..dir.len() - 1]
+        }
+    } else {
+        "."
+    };
     for e in lister(lookup_dir) {
         // lister 約定：目錄 entry 以 '/' 結尾（fs_lister 實作）
         if e.starts_with(&prefix) {
@@ -1189,8 +1310,7 @@ pub fn path_dirs() -> Vec<String> {
 fn common_prefix(v: &[String]) -> String {
     if v.is_empty() {
         return String::new();
-    }
-    let mut prefix: Vec<char> = v[0].chars().collect();
+    }    let mut prefix: Vec<char> = v[0].chars().collect();
     for s in &v[1..] {
         let sc: Vec<char> = s.chars().collect();
         let mut n = 0;
@@ -1200,6 +1320,12 @@ fn common_prefix(v: &[String]) -> String {
         prefix.truncate(n);
     }
     prefix.into_iter().collect()
+}
+
+/// 測试用可见性包装。
+#[doc(hidden)]
+pub fn common_prefix_for_test(v: &[String]) -> String {
+    common_prefix(v)
 }
 
 impl<'a> Interp<'a> {
