@@ -1,0 +1,448 @@
+##### NODE basename #####
+File: coreutils.info,  Node: basename invocation,  Next: dirname invocation,  Up: File name manipulation
+
+18.1 ‘basename’: Strip directory and suffix from a file name
+============================================================
+
+‘basename’ removes any leading directory components from NAME.
+Synopsis:
+
+     basename NAME [SUFFIX]
+     basename OPTION... NAME...
+
+   If SUFFIX is specified and is identical to the end of NAME, it is
+removed from NAME as well.  Since trailing slashes are removed prior to
+suffix matching, SUFFIX will do nothing if it contains slashes.
+‘basename’ prints the result on standard output.
+
+   Together, ‘basename’ and ‘dirname’ are designed such that if ‘ls
+"$name"’ succeeds, then the command sequence ‘cd "$(dirname "$name")";
+ls "$(basename "$name")"’ will, too.  This works for everything except
+file names containing a trailing newline.
+
+   POSIX allows the implementation to define the results if NAME is
+empty or ‘//’.  In the former case, GNU ‘basename’ returns the empty
+string.  In the latter case, the result is ‘//’ on platforms where // is
+distinct from /, and ‘/’ on platforms where there is no difference.
+
+   The program accepts the following options.  Also see *note Common
+options::.  Options must precede operands.
+
+‘-a’
+‘--multiple’
+     Support more than one argument.  Treat every argument as a NAME.
+     With this, an optional SUFFIX must be specified using the ‘-s’
+     option.
+
+‘-s SUFFIX’
+‘--suffix=SUFFIX’
+     Remove a trailing SUFFIX.  This option implies the ‘-a’ option.
+
+‘-z’
+‘--zero’
+     Output a zero byte (ASCII NUL) at the end of each line, rather than
+     a newline.  This option enables other programs to parse the output
+     even when that output would contain data with embedded newlines.
+
+   An exit status of zero indicates success, and a nonzero value
+indicates failure.
+
+   Examples:
+
+     # Output "sort".
+     basename /usr/bin/sort
+
+     # Output "stdio".
+     basename include/stdio.h .h
+
+     # Output "stdio".
+     basename -s .h include/stdio.h
+
+     # Output "stdio" followed by "stdlib"
+     basename -a -s .h include/stdio.h include/stdlib.h
+
+
+##### NODE dirname #####
+File: coreutils.info,  Node: dirname invocation,  Next: pathchk invocation,  Prev: basename invocation,  Up: File name manipulation
+
+18.2 ‘dirname’: Strip last file name component
+==============================================
+
+‘dirname’ prints all but the final slash-delimited component of each
+NAME.  Slashes on either side of the final component are also removed.
+If the string contains no slash, ‘dirname’ prints ‘.’ (meaning the
+current directory).  Synopsis:
+
+     dirname [OPTION] NAME...
+
+   NAME need not be a file name, but if it is, this operation
+effectively lists the directory that contains the final component,
+including the case when the final component is itself a directory.
+
+   Together, ‘basename’ and ‘dirname’ are designed such that if ‘ls
+"$name"’ succeeds, then the command sequence ‘cd "$(dirname "$name")";
+ls "$(basename "$name")"’ will, too.  This works for everything except
+file names containing a trailing newline.
+
+   POSIX allows the implementation to define the results if NAME is
+‘//’.  With GNU ‘dirname’, the result is ‘//’ on platforms where // is
+distinct from /, and ‘/’ on platforms where there is no difference.
+
+   The program accepts the following option.  Also see *note Common
+options::.
+
+‘-z’
+‘--zero’
+     Output a zero byte (ASCII NUL) at the end of each line, rather than
+     a newline.  This option enables other programs to parse the output
+     even when that output would contain data with embedded newlines.
+
+   An exit status of zero indicates success, and a nonzero value
+indicates failure.
+
+   Examples:
+
+     # Output "/usr/bin".
+     dirname /usr/bin/sort
+     dirname /usr/bin//.//
+
+     # Output "dir1" followed by "dir2"
+     dirname dir1/str dir2/str
+
+     # Output ".".
+     dirname stdio.h
+
+
+##### NODE pathchk #####
+File: coreutils.info,  Node: pathchk invocation,  Next: mktemp invocation,  Prev: dirname invocation,  Up: File name manipulation
+
+18.3 ‘pathchk’: Check file name validity and portability
+========================================================
+
+‘pathchk’ checks validity and portability of file names.  Synopsis:
+
+     pathchk [OPTION]... NAME...
+
+   For each NAME, ‘pathchk’ prints an error message if any of these
+conditions is true:
+
+  1. One of the existing directories in NAME does not have search
+     (execute) permission,
+  2. The length of NAME is larger than the maximum supported by the
+     operating system.
+  3. The length of one component of NAME is longer than its file
+     system's maximum.
+
+   A nonexistent NAME is not an error, so long as a file with that name
+could be created under the above conditions.
+
+   The program accepts the following options.  Also see *note Common
+options::.  Options must precede operands.
+
+‘-p’
+     Instead of performing checks based on the underlying file system,
+     print an error message if any of these conditions is true:
+
+       1. A file name is empty.
+
+       2. A file name contains a character outside the POSIX portable
+          file name character set, namely, the ASCII letters and digits,
+          ‘.’, ‘_’, ‘-’, and ‘/’.
+
+       3. The length of a file name or one of its components exceeds the
+          POSIX minimum limits for portability.
+
+‘-P’
+     Print an error message if a file name is empty, or if it contains a
+     component that begins with ‘-’.
+
+‘--portability’
+     Print an error message if a file name is not portable to all POSIX
+     hosts.  This option is equivalent to ‘-p -P’.
+
+   Exit status:
+
+     0 if all specified file names passed all checks,
+     1 otherwise.
+
+
+##### NODE realpath #####
+File: coreutils.info,  Node: realpath invocation,  Prev: mktemp invocation,  Up: File name manipulation
+
+18.5 ‘realpath’: Print the resolved file name.
+==============================================
+
+‘realpath’ expands all symbolic links and resolves references to ‘/./’,
+‘/../’ and extra ‘/’ characters.  By default, all but the last component
+of the specified files must exist.  Synopsis:
+
+     realpath [OPTION]... FILE...
+
+   The file name canonicalization functionality overlaps with that of
+the ‘readlink’ command.  This is the preferred command for
+canonicalization as it's a more suitable and standard name.  In addition
+this command supports relative file name processing functionality.
+
+   The program accepts the following options.  Also see *note Common
+options::.
+
+‘-e’
+‘--canonicalize-existing’
+     Ensure that all components of the specified file names exist.  If
+     any component is missing or unavailable, ‘realpath’ will output a
+     diagnostic unless the ‘-q’ option is specified, and exit with a
+     nonzero exit code.  A trailing slash requires that the name resolve
+     to a directory.
+
+‘-m’
+‘--canonicalize-missing’
+     If any component of a specified file name is missing or
+     unavailable, treat it as a directory.
+
+‘-L’
+‘--logical’
+     Symbolic links are resolved in the specified file names, but they
+     are resolved after any subsequent ‘..’ components are processed.
+
+‘-P’
+‘--physical’
+     Symbolic links are resolved in the specified file names, and they
+     are resolved before any subsequent ‘..’ components are processed.
+     This is the default mode of operation.
+
+‘-q’
+‘--quiet’
+     Suppress diagnostic messages for specified file names.
+
+‘--relative-to=DIR’
+     Print the resolved file names relative to the specified directory.
+     This option honors the ‘-m’ and ‘-e’ options pertaining to file
+     existence.
+
+‘--relative-base=DIR’
+     Print the resolved file names as relative _if_ the files are
+     descendants of DIR.  Otherwise, print the resolved file names as
+     absolute.  This option honors the ‘-m’ and ‘-e’ options pertaining
+     to file existence.  For details about combining ‘--relative-to’ and
+     ‘--relative-base’, *note Realpath usage examples::.
+
+‘-s’
+‘--strip’
+‘--no-symlinks’
+     Do not resolve symbolic links.  Only resolve references to ‘/./’,
+     ‘/../’ and remove extra ‘/’ characters.  When combined with the
+     ‘-m’ option, realpath operates only on the file name, and does not
+     touch any actual file.
+
+‘-z’
+‘--zero’
+     Output a zero byte (ASCII NUL) at the end of each line, rather than
+     a newline.  This option enables other programs to parse the output
+     even when that output would contain data with embedded newlines.
+
+   Exit status:
+
+     0 if all file names were printed without issue.
+     1 otherwise.
+
+* Menu:
+
+* Realpath usage examples::              Realpath usage examples.
+
+
+##### NODE realpath_examples #####
+File: coreutils.info,  Node: Realpath usage examples,  Up: realpath invocation
+
+18.5.1 Realpath usage examples
+------------------------------
+
+By default, ‘realpath’ prints the absolute file name of given files
+(symlinks are resolved, ‘words’ is resolved to ‘american-english’):
+
+     cd /home/user
+     realpath /usr/bin/sort /tmp/foo /usr/share/dict/words 1.txt
+     ⇒ /usr/bin/sort
+     ⇒ /tmp/foo
+     ⇒ /usr/share/dict/american-english
+     ⇒ /home/user/1.txt
+
+   With ‘--relative-to’, file names are printed relative to the given
+directory:
+
+     realpath --relative-to=/usr/bin \
+              /usr/bin/sort /tmp/foo /usr/share/dict/words 1.txt
+     ⇒ sort
+     ⇒ ../../tmp/foo
+     ⇒ ../share/dict/american-english
+     ⇒ ../../home/user/1.txt
+
+   With ‘--relative-base’, relative file names are printed _if_ the
+resolved file name is below the given base directory.  For files outside
+the base directory absolute file names are printed:
+
+     realpath --relative-base=/usr \
+              /usr/bin/sort /tmp/foo /usr/share/dict/words 1.txt
+     ⇒ bin/sort
+     ⇒ /tmp/foo
+     ⇒ share/dict/american-english
+     ⇒ /home/user/1.txt
+
+   When both ‘--relative-to=DIR1’ and ‘--relative-base=DIR2’ are used,
+file names are printed relative to DIR1 _if_ they are located below
+DIR2.  If the files are not below DIR2, they are printed as absolute
+file names:
+
+     realpath --relative-to=/usr/bin --relative-base=/usr \
+              /usr/bin/sort /tmp/foo /usr/share/dict/words 1.txt
+     ⇒ sort
+     ⇒ /tmp/foo
+     ⇒ ../share/dict/american-english
+     ⇒ /home/user/1.txt
+
+   When both ‘--relative-to=DIR1’ and ‘--relative-base=DIR2’ are used,
+DIR1 _must_ be a subdirectory of DIR2.  Otherwise, ‘realpath’ prints
+absolutes file names.
+
+
+File: coreutils.info,  Node: Working context,  Next: User information,  Prev: File name manipulation,  Up: Top
+
+19 Working context
+******************
+
+This section describes commands that display or alter the context in
+which you are working: the current directory, the terminal settings, and
+so forth.  See also the user-related commands in the next section.
+
+* Menu:
+
+* pwd invocation::              Print working directory.
+* stty invocation::             Print or change terminal characteristics.
+* printenv invocation::         Print environment variables.
+* tty invocation::              Print file name of terminal on standard input.
+
+
+File: coreutils.info,  Node: pwd invocation,  Next: stty invocation,  Up: Working context
+
+19.1 ‘pwd’: Print working directory
+===================================
+
+‘pwd’ prints the name of the current directory.  Synopsis:
+
+     pwd [OPTION]...
+
+   The program accepts the following options.  Also see *note Common
+options::.
+
+‘-L’
+‘--logical’
+     If the contents of the environment variable ‘PWD’ provide an
+     absolute name of the current directory with no ‘.’ or ‘..’
+     components, but possibly with symbolic links, then output those
+     contents.  Otherwise, fall back to default ‘-P’ handling.
+
+‘-P’
+‘--physical’
+     Print a fully resolved name for the current directory.  That is,
+     all components of the printed name will be actual directory names -
+     none will be symbolic links.
+
+   If ‘-L’ and ‘-P’ are both given, the last one takes precedence.  If
+neither option is given, then this implementation uses ‘-P’ as the
+default unless the ‘POSIXLY_CORRECT’ environment variable is set.
+
+   Due to shell aliases and built-in ‘pwd’ functions, using an unadorned
+‘pwd’ interactively or in a script may get you different functionality
+than that described here.  Invoke it via ‘env’ (i.e., ‘env pwd ...’) to
+avoid interference from the shell.
+
+   An exit status of zero indicates success, and a nonzero value
+indicates failure.
+
+
+File: coreutils.info,  Node: stty invocation,  Next: printenv invocation,  Prev: pwd invocation,  Up: Working context
+
+19.2 ‘stty’: Print or change terminal characteristics
+=====================================================
+
+‘stty’ prints or changes terminal characteristics, such as baud rate.
+Synopses:
+
+     stty [OPTION] [SETTING]...
+     stty [OPTION]
+##### NODE readlink #####
+File: coreutils.info,  Node: readlink invocation,  Next: rmdir invocation,  Prev: mknod invocation,  Up: Special file types
+
+12.6 ‘readlink’: Print value of a symlink or canonical file name
+================================================================
+
+‘readlink’ may work in one of two supported modes:
+
+‘Readlink mode’
+
+     ‘readlink’ outputs the value of the given symbolic links.  If
+     ‘readlink’ is invoked with an argument other than the name of a
+     symbolic link, it produces no output and exits with a nonzero exit
+     code.
+
+‘Canonicalize mode’
+
+     ‘readlink’ outputs the absolute name of the given files which
+     contain no ‘.’, ‘..’ components nor any repeated separators (‘/’)
+     or symbolic links.  The ‘realpath’ command is the preferred command
+     to use for canonicalization.  *Note realpath invocation::.
+
+     readlink [OPTION]... FILE...
+
+   By default, ‘readlink’ operates in readlink mode.
+
+   The program accepts the following options.  Also see *note Common
+options::.
+
+‘-f’
+‘--canonicalize’
+     Activate canonicalize mode.  If any component of the file name
+     except the last one is missing or unavailable, ‘readlink’ produces
+     no output and exits with a nonzero exit code.  A trailing slash is
+     ignored.
+
+‘-e’
+‘--canonicalize-existing’
+     Activate canonicalize mode.  If any component is missing or
+     unavailable, ‘readlink’ produces no output and exits with a nonzero
+     exit code.  A trailing slash requires that the name resolve to a
+     directory.
+
+‘-m’
+‘--canonicalize-missing’
+     Activate canonicalize mode.  If any component is missing or
+     unavailable, ‘readlink’ treats it as a directory.
+
+‘-n’
+‘--no-newline’
+     Do not print the output delimiter, when a single FILE is specified.
+     Print a warning if specified along with multiple FILEs.
+
+‘-s’
+‘-q’
+‘--silent’
+‘--quiet’
+     Suppress most error messages.  On by default.
+
+‘-v’
+‘--verbose’
+     Report error messages.
+
+‘-z’
+‘--zero’
+     Output a zero byte (ASCII NUL) at the end of each line, rather than
+     a newline.  This option enables other programs to parse the output
+     even when that output would contain data with embedded newlines.
+
+   The ‘readlink’ utility first appeared in OpenBSD 2.1.
+
+   The ‘realpath’ command without options, operates like ‘readlink’ in
+canonicalize mode.
+
+   An exit status of zero indicates success, and a nonzero value
+indicates failure.
+

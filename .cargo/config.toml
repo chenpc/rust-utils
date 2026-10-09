@@ -1,0 +1,10 @@
+# cargo 直接把 test 跑在 qemu guest 內：
+#   - crt-static：guest 沒有 libc/toolchain，binary 必須靜態連結
+#   - instrument-coverage：profraw 寫到 9p share（/out），回 host 用 scripts/coverage.sh 算
+#   - runner：每個 test binary 由 scripts/qemu_runner.sh 送進 guest 執行
+#   - deny-warnings：warn as error（使用者要求）
+[build]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "instrument-coverage", "-D", "warnings"]
+
+[target.x86_64-unknown-linux-gnu]
+runner = "/home/chenpc/git/rust-dist/scripts/qemu_runner.sh"

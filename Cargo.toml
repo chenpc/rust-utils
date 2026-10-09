@@ -1,0 +1,14 @@
+[package]
+name = "coreutils"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "coreutils"
+path = "src/lib.rs"
+
+[[bin]]
+name = "coreutils"
+path = "src/main.rs"
+
+# 不加任何 dependency：fuzz 用內建 PRNG，避免網路抓取與外部 crate。
