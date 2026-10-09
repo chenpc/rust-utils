@@ -158,3 +158,43 @@ fn write_error_sets_status() {
     let code = t::run_with("realpath", &[&format!("{D}/a"), &format!("{D}/lnk")], &[], &mut fw, &mut err);
     assert_eq!(code, 1);
 }
+
+/// fuzz 不變量：-m 的輸出一定是正規絕對路徑（無 //、/./、/../、尾斜線），
+/// 且 -s 與 -m 對不含 symlink 的隨機路徑結果相同。
+#[test]
+fn fuzz_output_is_canonical() {
+    setup_once();
+    let mut rng = t::Rng::new(0x72705f66757a7a);
+    for _ in 0..200 {
+        let ncomp = 1 + rng.below(5);
+        let mut parts: Vec<String> = Vec::new();
+        for _ in 0..ncomp {
+            match rng.below(6) {
+                0 => parts.push(".".to_string()),
+                1 => parts.push("..".to_string()),
+                2 => parts.push(String::new()), // 多餘斜線
+                _ => {
+                    let len = 1 + rng.below(4);
+                    let mut s = String::new();
+                    for _ in 0..len {
+                        s.push((b'a' + rng.below(4) as u8) as char);
+                    }
+                    parts.push(s);
+                }
+            }
+        }
+        let name = format!("{D}/{}", parts.join("/"));
+        let o = rp(&["-m", name.as_str()]);
+        assert_eq!(o.code, 0, "name={name}");
+        let out = o.out();
+        let out = out.trim_end_matches('\n');
+        assert!(out.starts_with('/'), "name={name} out={out}");
+        assert!(!out.contains("//"), "name={name} out={out}");
+        assert!(!out.ends_with('/') || out == "/", "name={name} out={out}");
+        let comps: Vec<&str> = out.split('/').collect();
+        assert!(!comps.iter().any(|c| *c == "." || *c == ".."), "name={name} out={out}");
+        // 隨機路徑不含 symlink：-s（詞法）與 -m 結果應相同。
+        let s = rp(&["-s", name.as_str()]);
+        assert_eq!(s.out(), out.to_string() + "\n", "name={name}");
+    }
+}

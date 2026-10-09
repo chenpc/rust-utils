@@ -147,3 +147,30 @@ fn write_error_sets_status() {
     );
     assert_eq!(code, 1); // 第一次寫入成功、第二次失敗
 }
+
+/// fuzz 不變量：預設模式 readlink 一定原樣吐回 symlink 的值；
+/// -f 的輸出等於 realpath -E（對既有 symlink）。
+#[test]
+fn fuzz_readlink_echoes_value() {
+    setup_once();
+    let mut rng = t::Rng::new(0x726c5f66757a7a);
+    std::fs::create_dir_all(format!("{D}/fz")).ok();
+    for i in 0..100 {
+        let len = 1 + rng.below(12);
+        let mut v = String::new();
+        for _ in 0..len {
+            v.push(match rng.below(5) {
+                0 => ' ',
+                1 => '.',
+                2 => '/',
+                3 => '-',
+                _ => (b'a' + rng.below(4) as u8) as char,
+            });
+        }
+        let link = format!("{D}/fz/l{i}");
+        std::fs::remove_file(&link).ok();
+        symlink(&v, &link).unwrap();
+        let o = rl(&[link.as_str()]);
+        assert_eq!((o.code, o.out()), (0, format!("{v}\n")), "value={v:?}");
+    }
+}

@@ -99,3 +99,63 @@ fn operand_and_option_errors() {
     // `--` 之後視為 operand。
     assert_eq!(r(&["--", "/a", "/b"]).out(), "../a\n");
 }
+
+/// 詞法折疊：對絕對路徑去 `.`、折 `..`（根之上停在根）。
+fn lex_abs(p: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for c in p.split('/') {
+        match c {
+            "" | "." => {}
+            ".." => {
+                out.pop();
+            }
+            _ => out.push(c.to_string()),
+        }
+    }
+    out
+}
+
+/// fuzz 不變量：relpath(B..A) 從 B 套用輸出後必達 A（詞法可達性），
+/// 且輸出 component 不含空、`.`，絕對運算元下 `..` 不會衝出根。
+#[test]
+fn fuzz_relpath_walk_reaches_dest() {
+    setup_once();
+    let mut rng = t::Rng::new(0x72705f6675);
+    let gen = |rng: &mut t::Rng| -> String {
+        let ncomp = 1 + rng.below(4);
+        let mut parts: Vec<String> = Vec::new();
+        for _ in 0..ncomp {
+            if rng.below(5) == 0 {
+                parts.push("..".to_string());
+            } else {
+                let len = 1 + rng.below(3);
+                let mut s = String::new();
+                for _ in 0..len {
+                    s.push((b'a' + rng.below(3) as u8) as char);
+                }
+                parts.push(s);
+            }
+        }
+        format!("/{}", parts.join("/"))
+    };
+    for _ in 0..200 {
+        let a = gen(&mut rng);
+        let b = gen(&mut rng);
+        let o = r(&[a.as_str(), b.as_str()]);
+        assert_eq!(o.code, 0, "a={a} b={b}");
+        let out = o.out().trim_end_matches('\n').to_string();
+        let mut cur = lex_abs(&b);
+        if out != "." {
+            for c in out.split('/') {
+                assert!(!c.is_empty() && c != ".", "a={a} b={b} out={out}");
+                match c {
+                    ".." => {
+                        cur.pop();
+                    }
+                    _ => cur.push(c.to_string()),
+                }
+            }
+        }
+        assert_eq!(cur, lex_abs(&a), "a={a} b={b} out={out}");
+    }
+}

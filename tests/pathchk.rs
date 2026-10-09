@@ -120,3 +120,31 @@ fn option_errors_and_meta() {
     assert_eq!(o.out(), "pathchk (uutils coreutils) 0.10.0\n");
     assert_eq!(pc(&["-V"]).out(), "pathchk (uutils coreutils) 0.10.0\n");
 }
+
+/// fuzz 不變量：完全可移植的名稱（component ≤14、總長 ≤256、字元集
+/// [A-Za-z0-9._-]、非 - 開頭）在 -p -P 下必過；否則必 rc1 且有診斷。
+#[test]
+fn fuzz_portable_names_pass_posix_checks() {
+    let mut rng = t::Rng::new(0x70635f66757a);
+    for _ in 0..200 {
+        let ncomp = 1 + rng.below(4);
+        let mut comps: Vec<String> = Vec::new();
+        for _ in 0..ncomp {
+            let len = 1 + rng.below(14);
+            let mut s = String::new();
+            for _ in 0..len {
+                s.push((b'a' + rng.below(3) as u8) as char);
+            }
+            comps.push(s);
+        }
+        let name = comps.join("/");
+        let o = pc(&["-p", "-P", name.as_str()]);
+        assert_eq!((o.code, o.err()), (0, String::new()), "name={name}");
+        // 注入一個非可移植字元後必 rc1。
+        let mid = comps[comps.len() / 2].clone();
+        let bad = format!("{} ~{mid}", comps[..comps.len() / 2].join("/"));
+        let o = pc(&["-p", bad.as_str()]);
+        assert_eq!(o.code, 1, "bad={bad}");
+        assert!(!o.err().is_empty());
+    }
+}
