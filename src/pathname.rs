@@ -7,15 +7,13 @@
 //!
 //! 不參照任何 coreutils source code。
 
-use std::path::Path;
 
 /// POSIX 最小可移植上限（`pathchk -p`）。數值取自 POSIX 標準名稱，
 /// man page 只寫「POSIX minimum limits for portability」（假設見 docs/assumptions.md）。
 pub const POSIX_PATH_MAX: usize = 256;
 pub const POSIX_NAME_MAX: usize = 14;
-/// 本機檔案系統上限（`pathchk` 預設檢查）：Linux PATH_MAX / ext4 NAME_MAX。
+/// 本機檔案系統上限（`pathchk` 預設檢查）：Linux PATH_MAX。
 pub const OS_PATH_MAX: usize = 4096;
-pub const FS_NAME_MAX: usize = 255;
 
 /// 存在性要求。
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -152,72 +150,56 @@ pub fn check_name(name: &str, o: CheckOpts) -> Vec<String> {
                         c.len(),
                         q(c)
                     ));
+                    break; // 只報第一個超限 component（與參考 binary 一致）
                 }
             }
         }
-    } else {
-        if name.len() > OS_PATH_MAX {
-            errs.push(format!(
-                "limit {} exceeded by length {} of file name {}",
-                OS_PATH_MAX,
-                name.len(),
-                q(name)
-            ));
-        } else {
-            for c in &comps {
-                if c.len() > FS_NAME_MAX {
-                    errs.push("File name too long (os error 36)".to_string());
-                    break;
-                }
-            }
-        }
-        // 既有的目錄 component 必須有 search（execute）權限。
-        for i in 0..comps.len() {
-            let dir = build_path(&comps[..i]);
-            if !Path::new(&dir).is_dir() {
-                break;
-            }
-            if no_search_permission(&dir) {
-                errs.push("Permission denied (os error 13)".to_string());
-                break;
-            }
-        }
+    } else if name.is_empty() {
+        // 預設模式：空名稱 → 特殊訊息（參考 binary 帶 applet 前綴與引號）。
+        errs.push(format!("pathchk: {}: No such file or directory", q(name)));
+    } else if name.len() > OS_PATH_MAX {
+        errs.push(format!(
+            "limit {} exceeded by length {} of file name {}",
+            OS_PATH_MAX,
+            name.len(),
+            q(name)
+        ));
     }
 
     if o.leading_hyphen {
-        if name.is_empty() {
-            errs.push("empty file name".to_string());
-        }
         for c in &comps {
             if c.starts_with('-') {
                 errs.push(format!("leading hyphen in file name component {}", q(c)));
             }
         }
     }
+
+    // 檔案系統檢查：沿 component 前綴 stat；前面的檢查有錯就跳過。
+    // ENOENT / ELOOP 被容忍（名稱不存在不是 pathchk 的錯誤）；其他錯誤如實回報。
+    if errs.is_empty() && !name.is_empty() {
+        let mut cur = String::new();
+        for c in &comps {
+            if !cur.is_empty() {
+                cur.push('/');
+            }
+            cur.push_str(c);
+            let path = if name.starts_with('/') {
+                format!("/{cur}")
+            } else {
+                cur.clone()
+            };
+            if let Err(e) = std::fs::metadata(&path) {
+                match e.raw_os_error() {
+                    Some(2) | Some(40) => break, // ENOENT / ELOOP → 容忍
+                    _ => {
+                        errs.push(e.to_string()); // e.g. "Permission denied (os error 13)"
+                        break;
+                    }
+                }
+            }
+        }
+    }
     errs
-}
-
-/// 用「對目錄內一個不存在的路徑做 stat」來判斷目錄是否有 search 權限：
-/// EACCES 代表沒有 x 權限，ENOENT 代表有。
-fn no_search_permission(dir: &str) -> bool {
-    let probe = format!("{}/.", dir);
-    match std::fs::metadata(&probe) {
-        Err(e) => e.kind() == std::io::ErrorKind::PermissionDenied,
-        Ok(_) => false,
-    }
-}
-
-/// 由 component 清單組出絕對路徑（空清單 = `/`）。
-fn build_path(comps: &[&str]) -> String {
-    if comps.is_empty() {
-        return "/".to_string();
-    }
-    let mut s = String::new();
-    for c in comps {
-        s.push('/');
-        s.push_str(c);
-    }
-    s
 }
 
 fn build_path_owned(comps: &[String]) -> String {
@@ -333,13 +315,8 @@ fn walk_physical(name: &str, mode: Mode) -> Result<String, String> {
             }
         }
     }
-    let out = build_path_owned(&cur);
-    if trailing && mode != Mode::Missing {
-        if !Path::new(&out).is_dir() {
-            return Err("Not a directory".to_string());
-        }
-    }
-    Ok(out)
+    let _ = trailing; // 參考 binary 不因尾端 `/` 報錯
+    Ok(build_path_owned(&cur))
 }
 
 /// 邏輯模式（-L）：先把 `..` 詞法化，再解析 symlink。
@@ -405,19 +382,13 @@ fn walk_logical(name: &str, mode: Mode) -> Result<String, String> {
             }
         }
     }
-    let out = build_path_owned(&cur);
-    if trailing && mode != Mode::Missing {
-        if !Path::new(&out).is_dir() {
-            return Err("Not a directory".to_string());
-        }
-    }
-    Ok(out)
+    let _ = trailing; // 參考 binary 不因尾端 `/` 報錯
+    Ok(build_path_owned(&cur))
 }
 
 /// 只做詞法化（-s）；存在性要求依 mode（-m 時完全不碰檔案）。
 fn walk_strip(name: &str, mode: Mode) -> Result<String, String> {
     let absolute = name.starts_with('/');
-    let trailing = name.ends_with('/');
     let base: Vec<String> = if absolute {
         Vec::new()
     } else {
@@ -441,11 +412,7 @@ fn walk_strip(name: &str, mode: Mode) -> Result<String, String> {
     let out = build_path_owned(&merged);
     if mode != Mode::Missing {
         match std::fs::metadata(&out) {
-            Ok(md) => {
-                if trailing && !md.is_dir() {
-                    return Err("Not a directory".to_string());
-                }
-            }
+            Ok(_) => {}
             Err(e) => {
                 if mode == Mode::Existing {
                     return Err(io_reason(&e));
@@ -467,6 +434,12 @@ pub fn canonicalize(name: &str, o: &Canon) -> Result<String, String> {
         return walk_logical(name, o.mode);
     }
     walk_physical(name, o.mode)
+}
+
+/// 詞法化 + 組回絕對路徑（relpath 用：假設輸入已是絕對路徑）。
+pub fn build_lexical_absolute(comps: &[&str]) -> String {
+    let lexed = lexical(true, comps);
+    build_path_owned(&lexed)
 }
 
 /// `target` 是否為 `base` 的子孫（含相等）。兩者都已是絕對路徑。
@@ -528,11 +501,11 @@ pub fn resolve_one(name: &str, o: &Canon) -> Result<String, String> {
     let abs = canonicalize(name, o)?;
     if o.relative_to.is_some() || o.relative_base.is_some() {
         let base_abs = match o.relative_to {
-            Some(rt) => Some(canonicalize(rt, &Canon { mode: Mode::Existing, ..Canon::default() })?),
+            Some(rt) => Some(canonicalize(rt, &Canon { mode: Mode::Default, ..Canon::default() })?),
             None => None,
         };
         let base_rel = match o.relative_base {
-            Some(rb) => Some(canonicalize(rb, &Canon { mode: Mode::Existing, ..Canon::default() })?),
+            Some(rb) => Some(canonicalize(rb, &Canon { mode: Mode::Default, ..Canon::default() })?),
             None => None,
         };
         let eff = Canon {

@@ -139,10 +139,11 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
                 }
             }
             Err(reason) => {
+                // 參考 binary（uutils 0.10.0）實測：-q 不只抑制訊息，連 exit code 都歸 0。
                 if !quiet {
                     writeln!(stderr, "realpath: {name}: {reason}").ok();
+                    status = 1;
                 }
-                status = 1;
             }
         }
     }

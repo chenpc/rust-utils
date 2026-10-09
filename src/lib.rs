@@ -60,6 +60,7 @@ pub fn lookup(name: &str) -> Option<AppletFn> {
         "ptx" => Some(applets::ptx::run),
         "readlink" => Some(applets::readlink::run),
         "realpath" => Some(applets::realpath::run),
+        "relpath" => Some(applets::relpath::run),
         "seq" => Some(applets::seq::run),
         "sh" => Some(applets::sh::run),
         "sha1sum" => Some(applets::sha1sum::run),

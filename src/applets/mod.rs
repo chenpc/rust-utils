@@ -32,6 +32,7 @@ pub mod printf;
 pub mod ptx;
 pub mod readlink;
 pub mod realpath;
+pub mod relpath;
 pub mod seq;
 pub mod sh;
 pub mod sha1sum;

@@ -131,12 +131,12 @@
 
 | # | applet | 狀態 | 備註 |
 |---|---|---|---|
-| 56 | `basename` | ☐ | |
-| 57 | `dirname` | ☐ | |
-| 58 | `pathchk` | ☐ | |
-| 59 | `realpath` | ☐ | |
-| 60 | `relpath` | ☐ | GNU 較新 |
-| 61 | `readlink` | ☐ | 需要 syscall |
+| 56 | `basename` | ☑ 83.42 | |
+| 57 | `dirname` | ☑ 98.94 | |
+| 58 | `pathchk` | ☑ 100.00 | |
+| 59 | `realpath` | ☑ 96.76 | |
+| 60 | `relpath` | ☑ 91.81 | GNU 較新；參考 binary 無此 applet，見 assumptions |
+| 61 | `readlink` | ☑ 97.22 | 需要 syscall |
 
 ## D. 檔案系統／權限（24）— 需要 syscall
 

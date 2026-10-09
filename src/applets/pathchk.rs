@@ -11,7 +11,7 @@
 use crate::pathname::{self as p, CheckOpts};
 use crate::{In, Out};
 
-pub fn run(args: &[String], _stdin: In, _stdout: Out, stderr: Out) -> i32 {
+pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
     let mut o = CheckOpts::default();
     let mut operands: Vec<String> = Vec::new();
     let mut no_more_opts = false;
@@ -32,14 +32,14 @@ pub fn run(args: &[String], _stdin: In, _stdout: Out, stderr: Out) -> i32 {
                 }
                 "help" => {
                     writeln!(
-                        stderr,
+                        stdout,
                         "Usage: pathchk [-p] [-P] [--portability] [-h|--help] [-V|--version] [path]"
                     )
                     .ok();
                     return 0;
                 }
                 "version" => {
-                    writeln!(stderr, "pathchk (uutils coreutils) 0.10.0").ok();
+                    writeln!(stdout, "pathchk (uutils coreutils) 0.10.0").ok();
                     return 0;
                 }
                 name => {
@@ -55,14 +55,14 @@ pub fn run(args: &[String], _stdin: In, _stdout: Out, stderr: Out) -> i32 {
                 'P' => o.leading_hyphen = true,
                 'h' => {
                     writeln!(
-                        stderr,
+                        stdout,
                         "Usage: pathchk [-p] [-P] [--portability] [-h|--help] [-V|--version] [path]"
                     )
                     .ok();
                     return 0;
                 }
                 'V' => {
-                    writeln!(stderr, "pathchk (uutils coreutils) 0.10.0").ok();
+                    writeln!(stdout, "pathchk (uutils coreutils) 0.10.0").ok();
                     return 0;
                 }
                 c => {

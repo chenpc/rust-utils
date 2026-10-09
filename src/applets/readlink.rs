@@ -102,14 +102,11 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
                 .map(|t| t.to_string_lossy().to_string())
                 .or_else(|e| {
                     // 不是 symlink（或讀不到）：依 -v 決定是否回報。
-                    let is_symlink = Path::new(name)
-                        .symlink_metadata()
-                        .map(|md| md.file_type().is_symlink())
-                        .unwrap_or(false);
-                    Err(if is_symlink {
-                        p::io_reason_pub(&e)
-                    } else {
-                        "Invalid argument".to_string()
+                    // 名稱存在但不是 symlink → EINVAL；不存在 → 直接用 stat 的 io 錯誤。
+                    Err(match Path::new(name).symlink_metadata() {
+                        Ok(md) if md.file_type().is_symlink() => p::io_reason_pub(&e),
+                        Ok(_) => "Invalid argument".to_string(),
+                        Err(e2) => p::io_reason_pub(&e2),
                     })
                 }),
             Some(m) => p::resolve_one(
@@ -135,7 +132,9 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
             }
             Err(reason) => {
                 if verbose {
-                    writeln!(stderr, "readlink: {name}: {reason}").ok();
+                    // 空名稱在訊息裡帶引號（與參考實作一致）。
+                    let shown = if name.is_empty() { "''".to_string() } else { name.clone() };
+                    writeln!(stderr, "readlink: {shown}: {reason}").ok();
                 }
                 status = 1;
             }

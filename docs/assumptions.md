@@ -72,3 +72,24 @@
 - `--debug`：參考印硬體偵測行（`avx512 support not detected` 等），本實作印 `<applet>: no hardware acceleration detected`。
 - `cksum` 預設 `crc` 是實作決定：本實作 poly `0x04c11db7`（MSB-first）、init 0、無 final xor；
   參考 `hello world\n` = 3733384285，本實作 = 3096396776，任何 init/xor/reflection 組合都重現不了。
+
+## C 群路徑家族（pathchk/readlink/realpath/relpath）
+
+- 本機參考實作為 uutils coreutils 0.10.0（`/usr/lib/cargo/bin/coreutils/<applet>`）。
+- `relpath`：參考 binary **不提供**（`unknown program 'relpath'`），docs/man mirror 亦無
+  `relpath.1.gz`。行為依 `docs/gnu_info/group_c_realpath_family.txt`（GNU coreutils 文件）實作：
+  `relpath [-s] [-p] DEST [BASE]`，BASE 預設 `.`；預設純詞法（相對運算元先以 cwd 補絕對，
+  不碰檔案系統）；`-s` 兩邊必須絕對路徑；`-p` 兩邊先解析 symlink（皆須存在）。
+  錯誤訊息措辭為自訂（`relpath: both paths must be absolute: 'x', 'y'`、
+  `relpath: extra operand 'c'`）。
+- `realpath -q` quirk（參考實測）：quiet 不只抑制診斷，**exit code 也歸 0**
+  （`realpath -q -e <dangling>` → rc 0）。本實跟隨。
+- `pathchk` 訊息細節（參考實測）：預設模式總長 >4096 → `limit 4096 exceeded by length N of
+  file name '<name>'`（有引號）；`-p` 總長 >256 → `limit 256 ... file name <name>`（**無**引號）；
+  component >14 只報第一個；`-p` 先驗總長再驗 component；`-P` 的空名稱走 stat ENOENT 分支
+  （`pathchk: '': No such file or directory`），只有 `-p` 才報 `empty file name`。
+- 名稱檢查不因**尾斜線**報錯（`realpath /a/b/` 對 regular file 也照樣輸出，參考實測 rc 0）。
+- `--relative-base` 語意（參考實測）：DEST 在 BASE 之下 → 輸出**相對**路徑（有 `--relative-to`
+  時以其為基準）；不在 BASE 之下 → 輸出**絕對**路徑。基準不存在時依詞法解析。
+- clap 專屬措辭（unknown option、重複選項、missing operand 的 `Try '...'` 行）不追隨參考，
+  採 GNU 风格（`applet: invalid option -- 'x'`，exit 2）。
