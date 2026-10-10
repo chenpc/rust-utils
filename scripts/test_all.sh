@@ -103,12 +103,20 @@ for i in "${!bins[@]}"; do
   id="$(basename "$b")"
   applet="${covnames[$i]}"
   [ "$applet" = "coreutils" ] && continue
-  "$_dir/scripts/coverage.sh" "$applet" > "$LOGDIR/$applet.cov.out" 2>&1 &
-  running=$((running + 1))
-  if [ "$running" -ge "$JOBS" ]; then
-    wait -n
-    running=$((running - 1))
-  fi
+  # 共用 profraw 的族群（ls/dir/vdir/ls_extra）不得平行：會被先完成的跑清掉
+  case "$applet" in
+    ls | dir | vdir | ls_extra)
+      "$_dir/scripts/coverage.sh" "$applet" > "$LOGDIR/$applet.cov.out" 2>&1
+      ;;
+    *)
+      "$_dir/scripts/coverage.sh" "$applet" > "$LOGDIR/$applet.cov.out" 2>&1 &
+      running=$((running + 1))
+      if [ "$running" -ge "$JOBS" ]; then
+        wait -n
+        running=$((running - 1))
+      fi
+      ;;
+  esac
 done
 wait
 phase_cov=$((SECONDS - start))

@@ -42,3 +42,6 @@
 {"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Scheduling paused","source":"agent","at":"2026-10-10T04:15:39.077Z"}
 {"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Scheduling paused","source":"agent","at":"2026-10-10T06:11:00.815Z"}
 {"type":"goal_resumed","goalId":"muzmzrxq-6pdlnm","reason":"user","at":"2026-10-10T06:35:45.868Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-10T09:30:36.756Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-10T09:30:46.643Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-10T09:36:05.951Z"}

@@ -142,9 +142,9 @@
 
 | # | applet | 狀態 | 備註 |
 |---|---|---|---|
-| 62 | `ls` | ☐ | `dir`/`vdir` 共用同一實作 |
-| 63 | `dir` | ☐ | |
-| 64 | `vdir` | ☐ | |
+| 62 | `ls` | ☑ 83.15 | `dir`/`vdir` 共用同一實作；guest 測試 ls/ls_extra/ls_coverage/dir/vdir 全綠 |
+| 63 | `dir` | ☑ 83.15 | 共用 ls 代碼（coverage 以 ls 家族合併 profraw 為準） |
+| 64 | `vdir` | ☑ 83.15 | 同上 |
 | 65 | `stat` | ☑ | guest test PASS、coverage 85.37% |
 | 66 | `mkdir` | ☑ | coverage 83.29% |
 | 67 | `rmdir` | ☑ | coverage 98.61% |

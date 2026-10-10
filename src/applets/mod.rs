@@ -31,6 +31,7 @@ pub mod init;
 pub mod join;
 pub mod link;
 pub mod ln;
+pub mod ls;
 pub mod md5sum;
 pub mod mkdir;
 pub mod mv;

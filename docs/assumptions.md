@@ -142,3 +142,30 @@
 - `mv -u` 以 mtime_ns 比較（相等即略過）；同 clock tick 寫入的兩檔 `-u` 會略過 — 測試需顯式 `set_times` 分離 mtime。
 - 修兩個真 bug：cp `make_symlink` 失敗原不回傳 Err（rc 誤 0）；cp cluster 缺 'T' arm。
 - 假設記錄：`docs/assumptions.md` 本節；checklist #71-73 ☑。
+
+## D 群叢集 4（ls/dir/vdir）
+- 策略依 log[48]：man 有描述以 man 為準；man 未指定處以本機參考 binary（uutils coreutils 0.10.0，`/usr/lib/cargo/bin/coreutils/ls`）實測對齊。pair-diff 殘留項列於此，e2e 測試改抓 man-derivable 不變量。
+- **多欄（-C/-x/--format=horizontal）欄數選擇**：以「最小列數 r0 使 k=ceil(n/r0) 欄可容納（欄寬=欄內 max＋2、末欄不補）」實作，多數 sweep 吻合（lw 14 檔 w7..30、un11 w20..40、lg w20..120）；但參考在部分組合（lg `-x`/`--format=horizontal` w80、`-w 12 -C`、`-T 4 -C`）選出更多欄或不同 gap，且含 tab 檔名時補白 tab-stop 位置差一個空格 → 無法由單一公式重現，不追 byte-exact。行內最後一個實際項目之後不補空白（已修）。
+- **sort ties**：參考對同 mtime／同 size 的檔案不依名稱排序（readdir/實作內部順序，不可重現）。本實採 `sort_by`（unstable）＋大小/時間主鍵；e2e 只斷言主鍵單調與集合相同。`-t`/`-S`/`--sort=time`/`--sort=size` 的 tie 順序差異入此假設。
+- **tmpfs 的 `..` 行欄位**：`/tmp` 為 tmpfs 時 `ls -la` 的 `..` 行 st_size（如 3300）大於列表最大 size，參考將 owner 欄 pad（`root   `）但 group 後單空格、大小欄寬取 `max(sw, 自身寬)`；其餘 tmpfs 行是否 pad 依 st_size 而變（lg/emptyd 案例不一致）→ 以「`..` 行 owner pad gw+1、大小欄 per-row max」近似，`-la` 其餘 gap 差異不追。`..` 的 st_size 不參與 sw 計算。
+- **-m（commas）斷行**：名稱區段與分隔詞 `", "` 的數寬規則自相矛盾（lg -w80 斷於 `n13,`@78、-w40 斷於 `f1,`@34、-w60 斷於 `n1,`@50；brk fixture 斷於 cur+next==width）。採 `cur+2 >= width` 近似，斷行位置差異入此假設。
+- **humanize（-h/--si）**：定案模型為 v<10 → 2 位有效 ceil（整數也保留 `.0`：1024→1.0K、2048→2.0K）；10 ≤ v < base → 3 位有效 ceil 整數（10.09K→11K、976.6K→977K）；ceil ≥ base → 進一位（999999 --si → 1000k）。34 sizes sweep 中 bin 33/34、si 33/34 吻合；邊界 quirk（16385→17K、1048575→1024K、1049600→1.1M、999999 --si→1000k vs 1.0M）顯示參考在 base² 附近切換 1024/1000 基準，無法統一 → 不追 byte-exact。
+- **total 行**：僅「目錄內容列表」或 `-s` 時出現；數值 = Σ st_blocks / 2。`-h/--si` 只 humanize total（參考以 blocks*512 為基），個別檔案大小欄仍是 st_size 原值。
+- **-ls blocks 欄**：自然寬＋單空格（`4 -rw-rw-r--`），非固定 3 欄右對齊（參考實測）。
+- **-D（dired）**：名稱後 ASCII `//DIRED// a b …` 與 `//DIRED-OPTIONS// --quoting-style=<style>`；offset 為名稱於整個輸出 byte 流的 0-based 起點與 exclusive 終點；`-b/-Q` → `C`、`-q/-N` → `literal`、`--quoting-style=shell` → `shell-show-control`、`shell-escape` → `shell-escape-show-control`。
+- **--hyperlink**：`--hyperlink=always` 以 OSC8 `file://<hostname><path>` 包裹名稱（`-l` 的 symlink target 不包裹、URI 用 resolved 路徑）；never/auto（非 tty）不輸出。參考 `-i` 模式 URI 路徑截断為 uutils quirk，不追隨。
+- **色彩**：`--color` 只實作「有/無色彩」層級與預設 LS_COLORS 表；參考的 `orphan`/`missing` 等細部 palette 差異不追（guest 無色彩終端，測試斷言無 escape 序列）。
+- **--time-style=off** 參考 rc0 正常列表（先前誤記為 uutils 錯誤措辭，已移除自創錯誤）；`--time-style=iso` 在 long 格式留下尾空格（參考 quirk，追隨）。
+- 錯誤措辭：`ls: cannot access 'X': No such file or directory`（無 `(os error N)` 後綴）、`ls: cannot open directory 'X': Permission denied`，rc2。
+- `-k` 為 no-op（參考實測）；`--absolute-paths` 參考不支援（clap unexpected argument）。
+- **`-g`/`-o` 語意採 GNU man**（`-g`＝long 省略 owner、`-o`＝long 省略 group）；本機參考 uutils 0.10.0 兩者都是「省略 group」，屬政策 (1) 覆盖 (2)。
+- **`--hyperlink` 為可選值旗標**：裸 `--hyperlink`＝always、不消耗下一個 operand（GNU man SYNOPSIS 無值）；`--hyperlink=always|auto|never` 亦可。`-l`/`-D` 的名稱欄在 always 時也包 OSC8（參考 `-l` 實測）。
+- **auto（`--color`/`--hyperlink`）在本專案一律視為非 tty＝never**：applet 的輸出是 `dyn Write`（guest 測試寫入記憶體緩衝、無法以 fd 判定終端）；`--color=always`/`--hyperlink=always` 仍強制啟用。
+- **`--time` 的合法值只有 `atime,ctime,mtime,birth`**（參考 clap possible values；非法值 rc1）。
+- **數值選項的 equals 形式**（`--width=50`、`--tabsize=4`、`--block-size=1K`）追隨參考 rc0；非法值措辭 `ls: invalid line width: 'X'`／`invalid tab size: 'X'`／`invalid --block-size argument 'X'` rc2。
+- **選項缺值措辭採參考（clap）**：`error: a value is required for '--format <format>' but none was supplied`＋possible values＋`For more information, try '--help'.`，rc1；未知短旗標則採 GNU man 風格 `ls: invalid option -- '~'`（rc2）。
+- **`--format` 亦接受 time-style 名稱** `iso/long-iso/full-iso/verbatim`（GNU man `--format=LONG` 段落含這些值；參考不支援 → 政策 (1) 覆盖 (2)）。
+- **`--quoting-style` 合法值**：literal, locale, shell, shell-always, shell-escape, shell-escape-always, clocale, c, escape（GNU man 無 `backslash`）。
+- **`--classify` 長形式**依 GNU man 對齊 `-F`；`--file-type` 為不加 `*` 的 classify。
+- **`-R` 遞迴时每層目錄都有 `name:` 標題**（單 operand 也加，參考實測）。
+- **`-a`/`-A`**：`-a` 含 `.`/`..`（以 `.hidden` 慣例與 `.`/`..` 存在性為不變量）。

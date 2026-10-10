@@ -30,7 +30,7 @@ for n in names:
 apps.joinpath("mod.rs").write_text("\n".join(mod_lines) + "\n")
 
 # 一個檔案可以對應多個 applet 名稱（例如 test.rs 同時提供 test 與 [）
-ALIASES = {"test": {"test": "run", "[": "run_bracket"}}
+ALIASES = {"test": {"test": "run", "[": "run_bracket"}, "ls": {"ls": "run_ls", "dir": "run_dir", "vdir": "run_vdir"}}
 
 arms = []
 for n in names:
