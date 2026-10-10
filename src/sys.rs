@@ -159,12 +159,12 @@ extern "C" {
 pub struct StatC {
     pub st_dev: u64,
     pub st_ino: u64,
+    pub st_nlink: u64,
     pub st_mode: u32,
-    pub st_nlink: u32,
     pub st_uid: u32,
     pub st_gid: u32,
     pub st_pad0: u32,
-    pub st_rdev: u32,
+    pub st_rdev: u64,
     pub st_size: i64,
     pub st_blksize: i64,
     pub st_blocks: i64,
@@ -174,7 +174,7 @@ pub struct StatC {
     pub st_mtime_nsec: u64,
     pub st_ctime: i64,
     pub st_ctime_nsec: u64,
-    pub unused: [i64; 2],
+    pub unused: [i64; 3],
 }
 
 /// 取 path 所在裝置號（GNU df 的去重鍵）；失敗回 None。

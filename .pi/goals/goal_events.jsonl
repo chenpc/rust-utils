@@ -40,3 +40,5 @@
 {"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Scheduling paused","source":"agent","at":"2026-10-10T03:04:33.435Z"}
 {"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Scheduling paused","source":"agent","at":"2026-10-10T03:26:33.737Z"}
 {"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Scheduling paused","source":"agent","at":"2026-10-10T04:15:39.077Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Scheduling paused","source":"agent","at":"2026-10-10T06:11:00.815Z"}
+{"type":"goal_resumed","goalId":"muzmzrxq-6pdlnm","reason":"user","at":"2026-10-10T06:35:45.868Z"}

@@ -145,7 +145,7 @@
 | 62 | `ls` | ☐ | `dir`/`vdir` 共用同一實作 |
 | 63 | `dir` | ☐ | |
 | 64 | `vdir` | ☐ | |
-| 65 | `stat` | ☐ | |
+| 65 | `stat` | ☑ | guest test PASS、coverage 85.37% |
 | 66 | `mkdir` | ☑ | coverage 83.29% |
 | 67 | `rmdir` | ☑ | coverage 98.61% |
 | 68 | `ln` | ☑ | coverage 89.03% |
@@ -154,14 +154,14 @@
 | 71 | `mv` | ☐ | 跨裝置要 copy+unlink |
 | 72 | `cp` | ☐ | 最費工：mode/ownership/symlink/`-a` |
 | 73 | `rm` | ☐ | |
-| 74 | `touch` | ☐ | |
+| 74 | `touch` | ☑ | guest test PASS、coverage 94.19% |
 | 75 | `install` | ☐ | |
 | 76 | `mkfifo` | ☐ | 需要特權或 syscall |
 | 77 | `mknod` | ☐ | 需要特權 |
 | 78 | `dircolors` | ☐ | |
-| 79 | `chmod` | ☐ | |
-| 80 | `chgrp` | ☐ | |
-| 81 | `chown` | ☐ | |
+| 79 | `chmod` | ☑ | guest test PASS、coverage 89.26% |
+| 80 | `chgrp` | ☑ | guest test PASS、coverage 94.83% |
+| 81 | `chown` | ☑ | guest test PASS、coverage 100.00% |
 | 82 | `chcon` | ☐ | 需要 SELinux |
 | 83 | `truncate` | ☑ | coverage 88.44% |
 | 84 | `mktemp` | ☐ | |

@@ -110,3 +110,20 @@
 - **du `--time=birth/creation` 以 ctime 近似**：無 statx 系統呼叫，birth time 無法取得（假設記錄於此）；`--time=UNKNOWN_WORD` 退回 mtime（uutils 行為）。
 - **du 刻意不追的 uutils quirk**（host 探測 /tmp/dg）：(1) `-A` 對 tmpfs 空目錄 own 顯示 0（我方 GNU ceil → 1）；(2) `-S` 對 ext4 目錄顯示 subtree 而非 own（我方 GNU own）；(3) `--exclude='{f1,sparse}'` 參考只排除 f1（我方兩者皆排除）；(4) `-t` 與目錄互動在 uutils 有不明總值異常。
 - **sync 對非普通檔/目錄跳過 fsync**：`sync /dev/null` 參考 rc=0（fsync 會 EINVAL），實作以 metadata is_file||is_dir 判斷後直接成功；`-f` 與 `-d` 併用自訂衝突訊息 rc1（參考 clap conflict 措辭不追隨）。
+
+## D 群叢集 1（mkdir/rmdir/ln/link/unlink/truncate）
+- 參考 uutils 0.10.0 錯誤措辭不一致：`mkdir` 僅 EEXIST 帶 operand 前綴（`mkdir: a: File exists`），其他錯誤不帶（`mkdir: No such file or directory`）。本實按 raw_os_error()==17 分流追隨。
+- `mkdir -m` 不補 chmod：只靠 mkdir(2) mode 參數，最終 mode 受 umask 與檔案系統 nosuid 影響（host tmpfs `-m 7775` → 1775，與參考一致）。
+- `truncate` 不支援 `/`（百分比取整）與 `%` 運算元（參考實測 `Invalid number: '20%'`）；支援 `0x10` hex 與 K/k/…/Y、KB/… 單位。
+- `ln -rs` 以 cwd 詞法化後取 `pathname::relative_from`；`--relative` 未搭 `-s` → 自訂 rc2 措辭（參考 clap requires rc1，不追隨措辭）。
+- 缺 operand／clap usage 措辭（ln/link/rmdir/truncate）一律自訂 rc2，測試只斷言非零與我方字串。
+
+## D 群叢集 2（stat/chmod/chown/chgrp/touch）
+- `stat` 預設**不追隨** symlink（uutils 行徑；GNU 預設追隨）。以 man page 無法區分，追隨參考 binary 實測。
+- `stat` 實作用 statx(2)（syscall 332）；错误措辭 `cannot statx '…'`。`%t`/`%T`（檔案系統 magic/type）在檔案模式下一律印 `0`（參考未做 statfs）；`%B` 固定 512；`%H` 印 `?`；`-f --format` 的 `%p` 印 `?`（參考未實作）。
+- `stat -f` 為布林（不吃參數）；FS 型別名稱查 magic 表，ext4(0xEF53) 顯示 `ext2/ext3`（參考命名）。Device 欄為十進位 `major,minor`（GNU 為 hex）。
+- `chmod` 省略 who 時 `perms & ~umask`（umask 於行程內即時探測）；裸 `t`/`s` 被參考拒絕 → 本實亦拒絕（GNU 接受）。`-f` 靜默但 exit code 仍 1（GNU 會歸 0）→ 不追 GNU。
+- `chown`/`chgrp`：`--reference` 存在時所有 positional 均視為 FILE（clap 語意，wrapper 層模擬）；參考取得 reference 失敗 → `failed to get attributes of '<f>': <reason>`。
+- `chown -R` 時 top-level operand 錯誤也不帶 `(os error N)` 後綴（參考 quirk，非 -R 才帶）。
+- `touch -t` 為**本地時區**語意驗證通過（TZ=+0800 下 `-t` 與 `-d ISO` 同刻）；不支援自然語言日期（`next friday` 參考可解析）→ 記為限制。
+- `touch -r <missing>` → `touch: failed to get attributes of '<rf>': …` rc1（不逐 operand 報）。

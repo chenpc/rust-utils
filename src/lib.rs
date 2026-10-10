@@ -9,6 +9,7 @@
 pub mod applets;
 pub mod basen;
 pub mod hashsum;
+pub mod chown_common;
 pub mod pathname;
 
 pub mod sys;
@@ -35,6 +36,9 @@ pub fn lookup(name: &str) -> Option<AppletFn> {
         "basename" => Some(applets::basename::run),
         "basenc" => Some(applets::basenc::run),
         "cat" => Some(applets::cat::run),
+        "chgrp" => Some(applets::chgrp::run),
+        "chmod" => Some(applets::chmod::run),
+        "chown" => Some(applets::chown::run),
         "cksum" => Some(applets::cksum::run),
         "comm" => Some(applets::comm::run),
         "csplit" => Some(applets::csplit::run),
@@ -85,12 +89,14 @@ pub fn lookup(name: &str) -> Option<AppletFn> {
         "shuf" => Some(applets::shuf::run),
         "sort" => Some(applets::sort::run),
         "split" => Some(applets::split::run),
+        "stat" => Some(applets::stat::run),
         "sum" => Some(applets::sum::run),
         "sync" => Some(applets::sync::run),
         "tac" => Some(applets::tac::run),
         "tail" => Some(applets::tail::run),
         "tee" => Some(applets::tee::run),
         "test" => Some(applets::test::run),
+        "touch" => Some(applets::touch::run),
         "tr" => Some(applets::tr::run),
         "true" => Some(applets::r#true::run),
         "truncate" => Some(applets::truncate::run),
