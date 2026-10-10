@@ -146,11 +146,11 @@
 | 63 | `dir` | ☐ | |
 | 64 | `vdir` | ☐ | |
 | 65 | `stat` | ☐ | |
-| 66 | `mkdir` | ☐ | |
-| 67 | `rmdir` | ☐ | |
-| 68 | `ln` | ☐ | |
-| 69 | `link` | ☐ | |
-| 70 | `unlink` | ☐ | |
+| 66 | `mkdir` | ☑ | coverage 83.29% |
+| 67 | `rmdir` | ☑ | coverage 98.61% |
+| 68 | `ln` | ☑ | coverage 89.03% |
+| 69 | `link` | ☑ | coverage 93.85% |
+| 70 | `unlink` | ☑ | coverage 96.49% |
 | 71 | `mv` | ☐ | 跨裝置要 copy+unlink |
 | 72 | `cp` | ☐ | 最費工：mode/ownership/symlink/`-a` |
 | 73 | `rm` | ☐ | |
@@ -163,7 +163,7 @@
 | 80 | `chgrp` | ☐ | |
 | 81 | `chown` | ☐ | |
 | 82 | `chcon` | ☐ | 需要 SELinux |
-| 83 | `truncate` | ☐ | |
+| 83 | `truncate` | ☑ | coverage 88.44% |
 | 84 | `mktemp` | ☐ | |
 | 85 | `shred` | ☐ | |
 

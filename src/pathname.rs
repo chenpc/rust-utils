@@ -214,9 +214,15 @@ fn build_path_owned(comps: &[String]) -> String {
     s
 }
 
+/// 同 io_reason_pub 但去掉 "(os error N)" 後綴（mkdir/rmdir/truncate 用）
+pub fn io_reason_nosuffix(e: &std::io::Error) -> String {
+    io_reason_pub(e).split(" (os error ").next().unwrap_or("").to_string()
+}
+
 pub fn io_reason_pub(e: &std::io::Error) -> String {
     match e.raw_os_error() {
         Some(2) => "No such file or directory".to_string(),  // ENOENT
+
         Some(13) => "Permission denied".to_string(),
         Some(20) => "Not a directory".to_string(),
         Some(36) => "File name too long".to_string(),
