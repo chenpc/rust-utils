@@ -1,1 +1,1 @@
-export CV=/mnt/bin/coreutils; echo hi | "$CV" cat > /tmp/sh_p1.txt; echo rc1=$?; echo p1=; "$CV" cat /tmp/sh_p1.txt; echo a | "$CV" tr a-z A-Z | "$CV" cat > /tmp/sh_p2.txt; echo p2=; "$CV" cat /tmp/sh_p2.txt; echo x | "$CV" cat
+R=/tmp/cpt_fz; rm -rf $R; mkdir -p $R/src/sub; echo -n a > $R/src/a; chmod 437 $R/src/a; echo -n x > $R/src/sub/c; chmod 400 $R/src/sub/c; cp -R $R/src $R/dst; echo RC=$?; du -a $R/dst; rm -rf $R

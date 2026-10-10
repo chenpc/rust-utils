@@ -151,9 +151,9 @@
 | 68 | `ln` | ☑ | coverage 89.03% |
 | 69 | `link` | ☑ | coverage 93.85% |
 | 70 | `unlink` | ☑ | coverage 96.49% |
-| 71 | `mv` | ☐ | 跨裝置要 copy+unlink |
-| 72 | `cp` | ☐ | 最費工：mode/ownership/symlink/`-a` |
-| 73 | `rm` | ☐ | |
+| 71 | `mv` | ☑ | coverage 84.66%；跨裝置 copy+unlink |
+| 72 | `cp` | ☑ | coverage 81.44%；mode/ownership/symlink/`-a` |
+| 73 | `rm` | ☑ | coverage 83.06% |
 | 74 | `touch` | ☑ | guest test PASS、coverage 94.19% |
 | 75 | `install` | ☐ | |
 | 76 | `mkfifo` | ☐ | 需要特權或 syscall |

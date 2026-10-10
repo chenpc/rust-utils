@@ -222,6 +222,20 @@ pub fn statvfs(path: &str) -> io::Result<Statvfs> {
     Ok(st)
 }
 
+extern "C" {
+    #[link_name = "mknod"]
+    fn mknod_c(path: *const i8, mode: u32, dev: u64) -> i32;
+}
+
+/// libc mknod 封裝（cp 重建 FIFO 用）；0 成功，-1 + errno。
+pub fn mknod(path: &str, mode: u32, dev: u64) -> i64 {
+    let c = match std::ffi::CString::new(path) {
+        Ok(c) => c,
+        Err(_) => return -1,
+    };
+    unsafe { mknod_c(c.as_ptr(), mode, dev) as i64 }
+}
+
 /// pipe(2) 包裝：回 (read_end, write_end)。本工具鏈無 std::os::unix::pipe。
 pub fn anon_pipe() -> io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
     extern "C" {

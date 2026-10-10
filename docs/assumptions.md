@@ -127,3 +127,18 @@
 - `chown -R` 時 top-level operand 錯誤也不帶 `(os error N)` 後綴（參考 quirk，非 -R 才帶）。
 - `touch -t` 為**本地時區**語意驗證通過（TZ=+0800 下 `-t` 與 `-d ISO` 同刻）；不支援自然語言日期（`next friday` 參考可解析）→ 記為限制。
 - `touch -r <missing>` → `touch: failed to get attributes of '<rf>': …` rc1（不逐 operand 報）。
+
+## D 群叢集 3（rm/mv/cp）
+- **cp FIFO/特殊檔重建改用 libc `mknod()`**：本環境（host qemu 兩側）`syscall(253 /*mknodat*/)` 回傳 3 且 errno=0（getpid via `syscall(39)` 正常），不可靠；改 `extern "C" mknod`（src/sys.rs）。
+- `cp --preserve=LIST` 為**取代**而非累加（GNU）：`--preserve=timestamps` 不保 mode；裸 `--preserve` 語意為 all，且可選參數只經 `=` 表單（不吃下一參數）。
+- `--interactive=never|always|prompt` 三支 applet 皆實作（GNU man 有描述 → 依策略以 man 為準；參考 uutils clap 拒絕帶值形式，措辭不追隨）。非法值 → `invalid argument 'X' for '--interactive'` rc2。
+- `cp` 覆寫既有目的地不 unlink：原地截斷寫入、**保留既有 mode**（參考 uutils 實測）。
+- `cp -l` 對非普通檔（字元裝置）rc1；一般 hard link 失敗措辭與參考同格式：`cannot create hard link '<dst>' to '<src>': <reason>`。
+- `cp --parents`：destination 必須是目錄，否則 `cp: with --parents, the destination must be a directory` rc1；絕對路徑 operand 在 dst 下重建完整絕對路徑（含 `-t` 合併時）。
+- `cp` 對目錄 operand 而無 `-R/-a`：`cp: -r not specified; omitting directory` rc1。
+- `cp` cluster 短選項缺附值（`-vt X`）→ `cp: option requires an argument -- 't'` rc2（不吞下一參數，GNU 吞；測試斷言我方措辭）。cluster 內 `-T` 已補（修 `invalid option -- 'T'` bug）。
+- `mv` cluster 的 `-S`/`-t` 在 cluster 內**吞下一參數**（`mv -fS f1 b` → f1 被吃為 suffix → 缺 destination rc1，GNU 同）。
+- `mv -T` 目的地為既存非空目錄 → rc1；`-fT` 空目錄 → 先 rmdir 再 rename 成功。
+- `mv -u` 以 mtime_ns 比較（相等即略過）；同 clock tick 寫入的兩檔 `-u` 會略過 — 測試需顯式 `set_times` 分離 mtime。
+- 修兩個真 bug：cp `make_symlink` 失敗原不回傳 Err（rc 誤 0）；cp cluster 缺 'T' arm。
+- 假設記錄：`docs/assumptions.md` 本節；checklist #71-73 ☑。
