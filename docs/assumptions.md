@@ -93,3 +93,20 @@
   時以其為基準）；不在 BASE 之下 → 輸出**絕對**路徑。基準不存在時依詞法解析。
 - clap 專屬措辭（unknown option、重複選項、missing operand 的 `Try '...'` 行）不追隨參考，
   採 GNU 风格（`applet: invalid option -- 'x'`，exit 2）。
+
+## F 群磁碟／系統（df/du/sync/dd）
+
+- **df 去重用 st_dev 而非 f_fsid**：guest 內 /mnt 與 /out 兩個 9p 掛載的 `f_fsid` 相同，若以 fsid 去重會漏掉一個掛載點；GNU 以 mount 點的 `st_dev` 為去重鍵，實作相同（`sys::stat_dev`）。
+- **df 表頭單位縮寫**：非 `-P` 時表頭用 `label_from_size(unit)`：1024 鏈整除 → `1K`/`4K`/`1M`（不附 B）、1000 鏈 → `1kB`（附 B）、其他 → SI human（1536 → `1.6kB`）；`-P` 一律 "{unit}-blocks"。`-P` 會忽略 DF_BLOCK_SIZE/BLOCK_SIZE/BLOCKSIZE 環境變數。
+- **df 的 autofs 行永遠略過**（如 systemd-1 的 binfmt_misc autofs 條目），`-a` 也不列；PSEUDO 清單只在非 `-a` 時略過。
+- **df `-B bogus` rc2**（GNU 風格 "df: invalid block size 'bogus'"），參考 uutils 回 rc1 措辭不同；clap 措辭（`-v`、`--bogus` rc1）不追隨。
+- **dd 不支援 `conv=ascii/ebcdic/ibm/sparse`**：回 "dd: conversion 'x' is not supported in this build" rc1。EBCDIC 表與 sparse 輸出超出本專案範圍假設。
+- **dd 速率欄只斷言結構**：參考 uutils 0.10.0 的速率數值不穩定（4B → "4.0 kB/s"、3072B → "42.1 MB/s"，計時 bug），測試以 regex 斷言 "copied, <t> s, <rate>" 結構。
+- **dd conv=sync 不補滿 count**：EOF 即停（uutils 行為），與 GNU（補 NUL 至 count 滿）不同；短讀補 NUL 後記錄計數仍屬 partial（0+1）。
+- **dd conv=block/unblock 依 uutils 串流語意**：block 以 '\n' 切線、每線去 \n 後 len>cbs 截斷+truncated++、否則補空格至 cbs，EOF 殘線也 flush；unblock 以 cbs 切塊、去尾空格、加 \n。刻意不追 uutils 在 ibs 與 cbs 交錯時的記錄對齊細節。
+- **dd conv=noerror 同時套用於讀與寫錯誤**（write_fail 在 noerror 時不設 rc=1）。
+- **dd `conv=block` 且 ibs<cbs 時參考只輸出第一筆記錄**（uutils bug，"ab\ncd\n" ibs=3 cbs=4 → 參考僅 2 bytes）；我方依串流線模型完整輸出，此案例刻意不追隨。
+- **du 目錄 own = lstat st_size**（`-b` apparent 下 tmpfs 目錄 st_size 非 0，為 60/140 等動態值）；測試用即時 stat 計算預期而非硬編 0。
+- **du `--time=birth/creation` 以 ctime 近似**：無 statx 系統呼叫，birth time 無法取得（假設記錄於此）；`--time=UNKNOWN_WORD` 退回 mtime（uutils 行為）。
+- **du 刻意不追的 uutils quirk**（host 探測 /tmp/dg）：(1) `-A` 對 tmpfs 空目錄 own 顯示 0（我方 GNU ceil → 1）；(2) `-S` 對 ext4 目錄顯示 subtree 而非 own（我方 GNU own）；(3) `--exclude='{f1,sparse}'` 參考只排除 f1（我方兩者皆排除）；(4) `-t` 與目錄互動在 uutils 有不明總值異常。
+- **sync 對非普通檔/目錄跳過 fsync**：`sync /dev/null` 參考 rc=0（fsync 會 EINVAL），實作以 metadata is_file||is_dir 判斷後直接成功；`-f` 與 `-d` 併用自訂衝突訊息 rc1（參考 clap conflict 措辭不追隨）。

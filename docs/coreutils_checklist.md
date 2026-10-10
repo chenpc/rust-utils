@@ -202,10 +202,10 @@
 
 | # | applet | 狀態 | 備註 |
 |---|---|---|---|
-| 112 | `df` | ☐ | |
-| 113 | `du` | ☐ | |
-| 114 | `sync` | ☐ | |
-| 115 | `dd` | ☐ | |
+| 112 | `df` | ☑ | coverage 80.45%；掛載表/去重（st_dev）/--output/human |
+| 113 | `du` | ☑ | coverage 92.30%；-a/-s/-b/--exclude/--time/--files0-from |
+| 114 | `sync` | ☑ | coverage 93.23%；-f(syncfs)/-d(fdatasync)/檔案 fsync |
+| 115 | `dd` | ☑ | coverage 82.78%；ibs/obs/cbs/conv（除 EBCDIC/sparse）/seek/iflag/oflag |
 
 ---
 

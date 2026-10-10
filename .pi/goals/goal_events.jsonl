@@ -34,3 +34,9 @@
 {"type":"goal_resumed","goalId":"muzmzrxq-6pdlnm","reason":"user","at":"2026-10-09T17:48:44.747Z"}
 {"type":"goal_focused","goalId":"muzmzrxq-6pdlnm","reason":"selected","at":"2026-10-09T18:02:14.270Z"}
 {"type":"goal_resumed","goalId":"muzmzrxq-6pdlnm","reason":"user","at":"2026-10-09T18:02:23.563Z"}
+{"type":"task_complete","goalId":"muzmzrxq-6pdlnm","taskId":"group-c","evidence":"6/6 guest PASS；coverage basename 83.42/dirname 98.94/pathchk 100/readlink 97.22/realpath 96.76/relpath 91.81；fuzz 不變量 4 新測試全綠；checklist C 群 ☑；commits 9398803、381dd1a；全量迴歸 62/62","at":"2026-10-09T20:24:25.264Z"}
+{"type":"task_started","goalId":"muzmzrxq-6pdlnm","taskId":"group-f","at":"2026-10-09T20:26:15.900Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"user","status":"paused","at":"2026-10-10T03:04:28.841Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Scheduling paused","source":"agent","at":"2026-10-10T03:04:33.435Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Scheduling paused","source":"agent","at":"2026-10-10T03:26:33.737Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Scheduling paused","source":"agent","at":"2026-10-10T04:15:39.077Z"}

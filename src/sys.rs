@@ -129,6 +129,99 @@ pub fn init_module(image: &[u8]) -> io::Result<()> {
 
 pub const RB_POWER_OFF: i32 = 0x4321fed2;
 
+// ---- 磁碟/系統（F 群）：sync / syncfs / statvfs ----
+
+/// glibc x86_64 statvfs 佈局（全 64-bit）。
+#[repr(C)]
+pub struct Statvfs {
+    pub f_bsize: u64,
+    pub f_frsize: u64,
+    pub f_blocks: u64,
+    pub f_bfree: u64,
+    pub f_bavail: u64,
+    pub f_files: u64,
+    pub f_ffree: u64,
+    pub f_favail: u64,
+    pub f_fsid: u64,
+    pub f_flag: u64,
+    pub f_namemax: u64,
+}
+
+extern "C" {
+    pub fn sync();
+    pub fn syncfs(fd: i32) -> i32;
+    pub fn statvfs64(path: *const i8, buf: *mut Statvfs) -> i32;
+    pub fn stat(path: *const i8, buf: *mut StatC) -> i32;
+}
+
+/// x86_64 struct stat（只需前兩欄即可取 st_dev）
+#[repr(C)]
+pub struct StatC {
+    pub st_dev: u64,
+    pub st_ino: u64,
+    pub st_mode: u32,
+    pub st_nlink: u32,
+    pub st_uid: u32,
+    pub st_gid: u32,
+    pub st_pad0: u32,
+    pub st_rdev: u32,
+    pub st_size: i64,
+    pub st_blksize: i64,
+    pub st_blocks: i64,
+    pub st_atime: i64,
+    pub st_atime_nsec: u64,
+    pub st_mtime: i64,
+    pub st_mtime_nsec: u64,
+    pub st_ctime: i64,
+    pub st_ctime_nsec: u64,
+    pub unused: [i64; 2],
+}
+
+/// 取 path 所在裝置號（GNU df 的去重鍵）；失敗回 None。
+pub fn stat_dev(path: &str) -> Option<u64> {
+    let p = cstr(path).ok()?;
+    let mut st = unsafe { std::mem::zeroed::<StatC>() };
+    if unsafe { stat(p.as_ptr(), &mut st) } != 0 {
+        return None;
+    }
+    Some(st.st_dev)
+}
+
+/// sync(2)：全域 flush。
+pub fn sync_all() {
+    unsafe { sync() }
+}
+
+/// syncfs(fd)：只 flush 該 fd 所在檔案系統。
+pub fn sync_fs(fd: i32) -> io::Result<()> {
+    if unsafe { syncfs(fd) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// statvfs(2) 封裝。
+pub fn statvfs(path: &str) -> io::Result<Statvfs> {
+    let p = cstr(path)?;
+    let mut st = Statvfs {
+        f_bsize: 0,
+        f_frsize: 0,
+        f_blocks: 0,
+        f_bfree: 0,
+        f_bavail: 0,
+        f_files: 0,
+        f_ffree: 0,
+        f_favail: 0,
+        f_fsid: 0,
+        f_flag: 0,
+        f_namemax: 0,
+    };
+    if unsafe { statvfs64(p.as_ptr(), &mut st) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(st)
+}
+
 /// pipe(2) 包裝：回 (read_end, write_end)。本工具鏈無 std::os::unix::pipe。
 pub fn anon_pipe() -> io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
     extern "C" {
@@ -175,5 +268,50 @@ pub fn power_off_sysrq() {
             let _ = f.write_all(key.as_bytes());
             let _ = f.flush();
         }
+    }
+}
+
+// ---- du: 本地時間格式化（--time-style）----
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct Tm {
+    pub tm_sec: i32,
+    pub tm_min: i32,
+    pub tm_hour: i32,
+    pub tm_mday: i32,
+    pub tm_mon: i32,
+    pub tm_year: i32,
+    pub tm_wday: i32,
+    pub tm_yday: i32,
+    pub tm_isdst: i32,
+    pub tm_gmtoff: i64,
+    pub tm_zone: *const i8,
+}
+
+extern "C" {
+    pub fn localtime_r(timep: &i64, result: &mut Tm) -> *mut Tm;
+}
+
+/// 將 unix 時間戳轉為本地 Tm；失敗回 None。
+pub fn local_tm(secs: i64) -> Option<Tm> {
+    let mut tm = Tm::default();
+    if unsafe { localtime_r(&secs, &mut tm) }.is_null() {
+        None
+    } else {
+        Some(tm)
+    }
+}
+
+extern "C" {
+    pub fn lseek(fd: i32, offset: i64, whence: i32) -> i64;
+}
+
+/// 安全包裝：回傳 Option<u64> 位置（ESPIPE 等失敗回 None）。
+pub fn lseek_pos(fd: i32, off: i64, whence: i32) -> Option<u64> {
+    let r = unsafe { lseek(fd, off, whence) };
+    if r < 0 {
+        None
+    } else {
+        Some(r as u64)
     }
 }

@@ -9,7 +9,10 @@ cksum
 comm
 csplit
 cut
+dd
+df
 dirname
+du
 echo
 expand
 expr
@@ -31,6 +34,7 @@ printf
 ptx
 readlink
 realpath
+relpath
 seq
 sh
 sha1sum
@@ -49,6 +53,7 @@ shuf
 sort
 split
 sum
+sync
 tac
 tail
 tee
