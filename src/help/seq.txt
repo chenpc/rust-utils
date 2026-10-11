@@ -1,0 +1,16 @@
+Display numbers from FIRST to LAST, in steps of INCREMENT.
+
+Usage: seq [OPTION]... LAST
+       seq [OPTION]... FIRST LAST
+       seq [OPTION]... FIRST INCREMENT LAST
+
+Arguments:
+  [numbers]...  
+
+Options:
+  -s, --separator <separator>    Separator character (defaults to \n)
+  -t, --terminator <terminator>  Terminator character (defaults to \n)
+  -w, --equal-width              Equalize widths of all numbers by padding with zeros
+  -f, --format <format>          use printf style floating-point FORMAT
+  -h, --help                     Print help
+  -V, --version                  Print version

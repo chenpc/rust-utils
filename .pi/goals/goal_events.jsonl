@@ -45,3 +45,21 @@
 {"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-10T09:30:36.756Z"}
 {"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-10T09:30:46.643Z"}
 {"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-10T09:36:05.951Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-10T14:34:20.967Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-10T14:50:43.587Z"}
+{"type":"goal_resumed","goalId":"muzmzrxq-6pdlnm","reason":"user","at":"2026-10-10T14:59:52.651Z"}
+{"type":"task_complete","goalId":"muzmzrxq-6pdlnm","taskId":"group-f","evidence":"df 80.45/du 92.30/sync 93.23/dd 82.78；guest 全綠；commit c95f18c；assumptions F 群節","at":"2026-10-10T15:31:22.140Z"}
+{"type":"task_started","goalId":"muzmzrxq-6pdlnm","taskId":"group-d","at":"2026-10-10T15:34:49.699Z"}
+{"type":"goal_resumed","goalId":"muzmzrxq-6pdlnm","reason":"user","at":"2026-10-10T16:21:43.759Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-10T16:42:47.952Z"}
+{"type":"goal_resumed","goalId":"muzmzrxq-6pdlnm","reason":"user","at":"2026-10-10T19:30:01.237Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-11T02:51:15.305Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-11T02:54:09.539Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-11T02:57:56.665Z"}
+{"type":"goal_resumed","goalId":"muzmzrxq-6pdlnm","reason":"user","at":"2026-10-11T03:04:31.490Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"user","status":"paused","at":"2026-10-11T05:36:26.569Z"}
+{"type":"goal_resumed","goalId":"muzmzrxq-6pdlnm","reason":"user","at":"2026-10-11T05:39:37.560Z"}
+{"type":"goal_resumed","goalId":"muzmzrxq-6pdlnm","reason":"user","at":"2026-10-11T10:26:51.601Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-11T10:36:34.124Z"}
+{"type":"goal_paused","goalId":"muzmzrxq-6pdlnm","reason":"Previous autonomous execution was interrupted. Use /goal-resume; its dispatch will not be replayed.","source":"agent","at":"2026-10-11T10:40:51.292Z"}
+{"type":"goal_resumed","goalId":"muzmzrxq-6pdlnm","reason":"user","at":"2026-10-11T12:55:54.884Z"}

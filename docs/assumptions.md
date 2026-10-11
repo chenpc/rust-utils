@@ -169,3 +169,21 @@
 - **`--classify` 長形式**依 GNU man 對齊 `-F`；`--file-type` 為不加 `*` 的 classify。
 - **`-R` 遞迴时每層目錄都有 `name:` 標題**（單 operand 也加，參考實測）。
 - **`-a`/`-A`**：`-a` 含 `.`/`..`（以 `.hidden` 慣例與 `.`/`..` 存在性為不變量）。
+
+## seq（src/applets/seq.rs）
+
+依據：`seq(1)` man 描述為準；man 未指定處以本機參考（uutils coreutils 0.10.0，`/usr/lib/cargo/bin/coreutils/seq`）實測對齊。黑箱 pair-diff 電池 295 例全綠（`~/tools/seqalign.py`）。
+
+- **計數採字面十進位精確算**：count = floor((LAST−FIRST)/INCREMENT)，以三者共 scale 的整數計算（非 f64 累加）。實測佐證：`0 0.1 0.3` → 0.0 0.1 0.2 0.3；`1 1 3.9999999999999996` → 1 2 3；`1 1 3.999999999999999` → 1 2 3（純 f64 累加或 ULP 容差都無法同時成立）。
+- **小數位 precision = max(decimals(FIRST), decimals(INCREMENT))**，LAST 不貢獻（`9.1 9.14` → precision 0 → `9`）；decimals 取自字面量的最小十進位展開（`1e-5`→5、`1.5e-2`→3、`1e100`→0）。
+- **`-w` 寬度 = max(int_field(渲染後 FIRST), int_field(渲染後 LAST), int_field(渲染後 INCREMENT))}`**，三個 operand 即使不被印出也計入（`-w 3 100 5` → `003`、`-w 9.999 10.001` → `09.999`）；補零位在符號之後、整數位之前；hex operand 不貢獻寬度（`-w 0x10` → 1..16 不補零，參考實測）。
+- **hex operand 探 C `strtod` 語意**：`0x10`→16、`0x1.8`→1.5、`0x1.8p2`→6（`0b`/`0o` 前綴拒絕）。含小數部分的 hex 其值以 C `%g` 風格渲染（去尾零、必要時科學記號）：`1.5 0.25 0x2.8` → `1.5 1.75 2 2.25 2.5`。
+- **clap positional 語意**：出現第一個 positional 之後，後續 token（含 `--help`、`-V`、`--`、旗標本身）一律落地成 positional 值；累積超過 3 個時為 `error: unexpected value '<最後值>' for '[numbers]...' found; no more were expected`＋空行＋三行 Usage＋空行＋`For more information, try '--help'.`（佐證：`1 2 3 -s x`→'x'、`1 2 3 -w`→'-w'、`1 2 3 --`→'--'、`1 3 -s,`→','）。help/version 只在尚未出現 positional 時立即中斷解析（`-h 1 2 3 4` → help、`-Vh` → version）。
+- **選項值不得是「已知選項」**：`-s -w 3` → `error: a value is required for '--separator <separator>' but none was supplied`；但接受未知 hyphen token（`-s -x 1 3` → separator `-x`）。
+- **`-f` 格式驗證**：只接受 `e E f F g G`（長度修飾符 `hh h ll l L j z t` 可前置）。非浮點轉換（`d i o u x X c s b q *`）→ `seq: wrong % directive type was given`；其他（`n p z t j h l L C D U O`、`%10`、`%-`）→ `seq: <前兩字元>: invalid conversion specification`（`%10` 報 `%1`）。`%%` 是跳脫、不计入 directive 數；無 directive → `format '<spec>' has no % directive`；結尾孤立 `%` → `format '<spec>' ends in %`（已有一個 directive 時改報 `has too many % directives`）。所有 `-f` 格式錯誤一律不附 `Try '<path> --help' for more information.` 行。
+- **錯誤措辭採參考**：`seq: invalid floating point argument: 'a'`、`seq: invalid 'not-a-number' argument: 'nan'`、`seq: invalid Zero increment value: '0'`（大寫 Z）、`seq: missing operand`（皆附 Try 行，唯 `-f` 格式錯誤不附）。
+- **負零**：FIRST 為 `-0` 時保留負號（`seq -0 3` → `-0 1 2 3`）。
+- **已知偏差 (1)：`%a`/`%A` 不支援**。參考接受 C99 hex float（`-f %a 1 0.5 3` → `0x8p-3 0xcp-3`；`-f %a 1e100 1e1200 1e100` 正規化為單一 hex 整數位且 p ≡ 1 (mod 4)）；man 僅列 e/E/f/F/g/G，本實作回報 `invalid conversion specification`。
+- **已知偏差 (2)：`.5` 的舍入方向**。`-f %.6g 100000.5 1 100002` → 參考 `100001 100002`（half-away），本實作 `100000 100002`（half-to-even，與先前 C/glibc `%.1g`、`%+.3g` 實測一致）。
+- **已知偏差 (3)：極端量位的多 operand run**。當字面量超出 f64（如 `seq 1e1200 1e1200 1e1201`），參考改用科學記號渲染（`1e+1200 2e+1200 …`），而單 operand（`seq 1e1200 1e1200`）又輸出完整展開——參考自身不一致；本實作一律完整十進位展開（數值相同）。`-f` 指定格式時兩者一致（`-f %g 1e1200 …` → `1e+1200`）。
+- **無限 operand**：`seq 1 1 inf` 兩邊都是無限輸出（測試不涵蓋）；`seq inf 1 2` 兩邊皆空輸出 rc0。
