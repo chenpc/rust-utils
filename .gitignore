@@ -11,3 +11,4 @@ guest-share/out/
 guest-share/tests/
 guest-share/bin/
 -
+.workflows/

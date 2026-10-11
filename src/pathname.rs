@@ -236,6 +236,51 @@ fn io_reason(e: &std::io::Error) -> String {
     io_reason_pub(e)
 }
 
+/// multi-call 時參考用 `<argv0 dirname>/<applet>`；symlink 直呼時 argv[0] 已是 /bin/<applet>。
+pub fn invoked_as(applet: &str) -> String {
+    let mut argv = std::env::args();
+    let a0 = argv.next().unwrap_or_default();
+    let a1 = argv.next().unwrap_or_default();
+    if a1 == applet {
+        let dir = a0.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+        if dir.is_empty() {
+            applet.to_string()
+        } else {
+            format!("{}/{}", dir, applet)
+        }
+    } else {
+        a0
+    }
+}
+
+/// uutils 的 usage hint：`Try '<path>/<applet> --help' for more information.`
+pub fn usage_hint(applet: &str) -> String {
+    format!("Try '{} --help' for more information.", invoked_as(applet))
+}
+
+/// clap 風格「選項缺值」錯誤（uutils 對 clap long option 的實測措辭）：
+/// `error: a value is required for '--mode <MODE>' but none was supplied` + 空行 +
+/// `For more information, try '--help'.`
+pub fn clap_value_required(long: &str, metavar: &str, stderr: crate::Out) {
+    if long.len() == 1 {
+        writeln!(
+            stderr,
+            "error: a value is required for '-{} <{}>' but none was supplied",
+            long, metavar
+        )
+        .ok();
+    } else {
+        writeln!(
+            stderr,
+            "error: a value is required for '--{} <{}>' but none was supplied",
+            long, metavar
+        )
+        .ok();
+    }
+    writeln!(stderr).ok();
+    writeln!(stderr, "For more information, try '--help'.").ok();
+}
+
 /// 詞法化：處理 `.`、`..`、多餘 `/`，不碰檔案系統。
 /// 相對路徑開頭的 `..` 會保留（無法在詞法層去掉）。
 pub fn lexical(absolute: bool, comps: &[&str]) -> Vec<String> {

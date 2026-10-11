@@ -13,7 +13,7 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-fn current_umask() -> u32 {
+pub fn current_umask() -> u32 {
     extern "C" {
         fn umask(mask: u32) -> u32;
     }

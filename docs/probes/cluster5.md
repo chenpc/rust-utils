@@ -144,3 +144,33 @@
 - install `-t NONEXISTENT SRC` → rc0 且**建立該目錄**（uutils 行為）。
 - dircolors 未知選項完整 stderr：`error: unexpected argument '-o' found` + 空行 + `  tip: to pass '-o' as a value, use '-- -o'` +（_usage_ 空行 + `Usage: dircolors [OPTION]... [FILE]` + 空行 + `For more information, try '--help'.`）。
 - dircolors `--print-ls-colors` 輸出格式：每條 `<ESC>[<value>m<KEY><TAB><value><ESC>[0m`，例如 `[0mrs\t0[0m`、`[01;34mdi\t01;34[0m`（ESC 為 0x1b 原位元組）。
+
+## 補測二（實作前最後一輪）
+
+- mktemp `--tmpdir=<DIR> '/abs.XXXXXX'` → rc1 `mktemp: invalid template, '/abs.XXXXXX'; with --tmpdir, it may not be absolute`
+- mktemp `-t`（無 operand）→ rc0，預設 prefix 生效：`/tmp/tmp.<10 random>`
+- mktemp `aXXXXX bXXXXX` → rc1 `mktemp: too many templates` + `Try '<path>/mktemp --help' for more information.`
+- shred `--remove=bogus` 完整 stderr：`error: invalid value 'bogus' for '--remove[=<HOW>]'` + 空行 + `  [possible values: unlink, wipe, wipesync]`（+ 空行 + `For more information, try '--help'.`）
+- shred `--remove=unlink`（不附 `=`）→ 不執行移除（GNU 需 `--remove=unlink` 才移除；我方 `--remove` 無值 → 依 GNU 語意不移除）
+- install `-C` 內容相同 → 仍套用 mode 但不改內容（實測 dst 內容保持原值）
+- install `-S '.XX'`（無 -b）→ 仍產生 numbered 備份 `dst.~N~`（-S 隱含 backup=numbered 語意）
+- install 預設 mode 755（host umask 002 環境下亦為 755）
+
+## 補測三（install 語意定案，2026-09 實作輪）
+
+- `-t TARGET`（TARGET **不存在**）+ 單一 SRC → **rc0**，TARGET 被當成**一般檔案**建立（非目錄）：
+  `install -t z1 src/a` → z1 為 FILE、content=SRC、mode 755
+- `-t TARGET`（不存在）+ 兩 SRC → rc1 `install: target 'TARGET' is not a directory`（**不建立** TARGET）
+- `-t TARGET`（TARGET 是既有**檔案**）→ 單 SRC rc0（覆寫該檔案）；兩 SRC rc1 同上措辭
+- `-t DIR`（既有目錄）+ 兩 SRC → rc0，兩檔都放進 DIR
+- `-C` + SRC/DST 内容相同 → 不複製、但仍套用 mode（dst 600 → 755，預設 mode）；内容不同 → 照常複製（dst 變 SRC 内容、mode 755）；DST 不存在 → 正常複製
+- `-C -v` 内容相同 → **無任何 stdout**（不印 removed / ->）
+- `-s` 與 `-C` 同時 → rc1 `install: Options --compare and --strip are mutually exclusive`
+- `-s` 對 ELF：複製後呼叫外部 `strip DST`；成功 rc0（host 上 strip 未縮小）；失敗 → strip 自身 stderr + rc1 `install: strip program failed: strip process terminated abnormally - exit status: 1`（措辭以實測為準）
+- 備份（simple）：`-b` → suffix `~`；`-S '.ZZ'`（**無 -b**）→ 啟用 backup 且 suffix `.ZZ`；`--backup=numbered` → `name.~N~`（N 逐次遞增，舊備份保留）；`--backup=bogus` → rc1
+  `install: invalid argument 'bogus' for 'backup type'` + `Valid arguments are:` + 4 行（`  - 'none', 'off'` / `  - 'simple', 'never'` / `  - 'existing', 'nil'` / `  - 'numbered', 't'`）+ Try 行
+- simple backup **同一 suffix 重複覆寫**（不累加）：`-b -S .ZZ` 兩次 → 只有 `b1.ZZ` 一個備份檔；`$SIMPLE_BACKUP_SUFFIX=.ENV` → suffix `.ENV`
+- `-v` 且有備份 → `removed 'DST'` 然後 `'SRC' -> 'DST' (backup: 'DST.~1~')`（numbered 例）
+- `-d -v -m 700 p1/x/y` → 只印葉層 `creating directory 'p1/x/y'`（無 `install: ` 前綴）；**中間層 mode 755（預設）**、葉層 mode 700；既有 p1/x 不受 -m 影響
+- `-D -v src DST` → 每個新建上層印 `install: creating directory 'X'`（**帶 `install: ` 前綴**），最後 `'SRC' -> 'DST'`；`-D -m 700` 時中間層 755、最終檔 700
+- `-d` 預設 mode：`0o777 & ~umask`（umask 022 → 755）
