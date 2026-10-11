@@ -3,7 +3,7 @@
 //! 行為基準取自本機參考 uutils coreutils 0.10.0 的逐 case pair-diff
 //! （~/tools/pairdrive.py，49 cases 全一致；結果記錄於 docs/probes/cluster5.md）。
 use coreutils::testutil as t;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 fn fresh(tag: &str) -> std::path::PathBuf {
     let d = std::path::PathBuf::from(format!("/tmp/inst_{}_{}", tag, std::process::id()));
@@ -104,9 +104,7 @@ fn into_directory_and_multiple_sources() {
 fn directory_creation_modes() {
     fresh("dirs");
     assert_eq!(i(&["-d", "nd1/nd2"]).code, 0);
-    // 參考實測：中間層與葉層皆 0777 & !umask，且顯式 chmod（umask 探測同 mkdir 測試）
-    let probe = std::fs::DirBuilder::new().create("probe_dir").unwrap_err();
-    let _ = probe;
+    // umask 探測：中間層與葉層皆 0777 & !umask（同 mkdir 測試方法）
     let observed = {
         std::fs::create_dir("umask_probe").unwrap();
         let m = mode_of("umask_probe");
@@ -153,11 +151,20 @@ fn verbose_lines() {
     assert_eq!(r.out(), "removed 'v1'\n'src_a' -> 'v1'\n");
     let r = i(&["-v", "-d", "vd1/vd2"]);
     assert_eq!(r.code, 0);
+    // 參考實測：-d -v 只印一筆（整個 operand、不逐層）；已存在的目錄不印
     assert_eq!(r.out(), "creating directory 'vd1/vd2'\n");
-    // -D 逐層印（帶 prefix 由 mkdir_p 決定：僅實際建立的層）
+    let r = i(&["-v", "-d", "vd1/vd2"]);
+    assert_eq!(r.code, 0);
+    assert_eq!(r.out(), "", "目錄已存在時不應印 creating directory");
+    // 參考實測：-D -v 印 "install: creating directory '<DEST 的父目錄>'"
     let r = i(&["-v", "-D", "src_a", "nest/a/b/x"]);
     assert_eq!(r.code, 0);
-    assert!(r.out().contains("nest/a"), "{}", r.out());
+    assert_eq!(
+        r.out(),
+        "install: creating directory 'nest/a/b'\n'src_a' -> 'nest/a/b/x'\n",
+        "{}",
+        r.out()
+    );
 }
 
 #[test]
@@ -181,12 +188,17 @@ fn backups() {
     assert!(numbered >= 1, "expected numbered backup");
     let r = i(&["--backup=bogus", "src_a", "f1"]);
     assert_eq!(r.code, 1);
+    assert_eq!(
+        r.err().lines().next().unwrap(),
+        "error: invalid value 'bogus' for '--backup[=<METHOD>]'"
+    );
     assert!(
-        r.err().contains("install: invalid argument 'bogus' for 'backup type'"),
+        r.err()
+            .contains("  [possible values: none, numbered, existing, simple]"),
         "{}",
         r.err()
     );
-    assert!(r.err().contains("Valid arguments are:"), "{}", r.err());
+    assert!(r.err().contains("For more information, try '--help'."));
 }
 
 #[test]
@@ -205,9 +217,10 @@ fn compare_and_times_and_misc_flags() {
     let r = i(&["-C", "-s", "src_a", "never"]);
     assert_eq!(r.code, 1);
     assert_eq!(
-        r.err().trim_end(),
+        r.err().lines().next().unwrap(),
         "install: Options --compare and --strip are mutually exclusive"
     );
+    assert!(r.err().contains("Try '"), "{}", r.err());
     assert!(!std::path::Path::new("never").exists());
     // -p 複製時間戳
     write("old_time", "AAA", 0o644);
@@ -283,7 +296,8 @@ fn operand_errors_and_version() {
         "error: a value is required for '-m <MODE>' but none was supplied"
     );
     let r = i(&["--version"]);
-    assert_eq!((r.code, r.out()), (0, "install (uutils coreutils) 0.10.0\n"));
+    assert_eq!(r.code, 0);
+    assert_eq!(r.out(), "install (uutils coreutils) 0.10.0\n");
     let r = i(&["--help"]);
     assert_eq!(r.code, 0);
     assert!(r.out().contains("Usage: install [OPTION]... [FILE]..."), "{}", r.out());
@@ -304,7 +318,9 @@ fn fuzz_install_mode_and_content() {
     let mut rng = t::Rng::new(20261101);
     for k in 0..40 {
         let mode = 0o777u32 & !(rng.below(0o1000) as u32);
-        let content: String = String::from_utf8_lossy(&rng.bytes(1 + rng.below(40) as usize))
+        let nbyte = 1 + rng.below(40) as usize;
+        let raw = rng.bytes(nbyte);
+        let content: String = String::from_utf8_lossy(&raw)
             .chars()
             .map(|c| if c == '\0' { ' ' } else { c })
             .collect();
@@ -322,4 +338,79 @@ fn fuzz_install_mode_and_content() {
         assert_eq!(r.code, 0);
         assert_eq!(mode_of(&dst) & 0o7777, mode);
     }
+}
+
+#[test]
+fn make_parents_owner_group_and_selinux_flags() {
+    let d = fresh("parents");
+    let src = d.join("src").to_string_lossy().into_owned();
+    write(&src, "payload", 0o644);
+
+    // -D：建立 DEST 的所有上層目錄（uutils 擴充；GNU man 無 -D）
+    let deep = d.join("a/b/c").to_string_lossy().into_owned();
+    let r = i(&["-D", &src, &deep]);
+    assert_eq!(r.code, 0, "{}", r.err());
+    assert!(std::fs::metadata(&deep).unwrap().is_file(), "-D 後 DEST 應是檔案");
+    assert!(std::fs::metadata(d.join("a/b")).unwrap().is_dir());
+
+    // -o/-g：guest 為 root、以數字 id 指定（guest 無 /etc/passwd → 名稱查找必然失敗，
+    // 與 host 參考行為一致："install: invalid user: 'root'"）；不給 -m 時 mode 755
+    let dst = d.join("og").to_string_lossy().into_owned();
+    let r = i(&["-o", "0", "-g", "0", &src, &dst]);
+    assert_eq!(r.code, 0, "{}", r.err());
+    let md = std::fs::metadata(&dst).unwrap();
+    assert_eq!(md.uid(), 0, "-o root 應 chown 成功");
+    assert_eq!(md.gid(), 0, "-g root 應 chgrp 成功");
+    assert_eq!(md.mode() & 0o7777, 0o755);
+
+    // -U/--unprivileged：無特權時 chown 失敗不報、chmod 仍套用（root 環境下 chown 直接成功）
+    let dst2 = d.join("og2").to_string_lossy().into_owned();
+    let r = i(&["-U", "--group=0", &src, &dst2]);
+    assert_eq!(r.code, 0, "{}", r.err());
+    assert_eq!(std::fs::metadata(&dst2).unwrap().gid(), 0);
+
+    // man 有載的 SELinux 旗標：-Z、-P/--preserve-context、--context[=CTX]
+    // （本建置無 SELinux：參考與我方都接受且不改變結果）
+    let src_s = src.as_str();
+    for (idx, flags) in vec![
+        vec!["-Z"],
+        vec!["-P"],
+        vec!["--preserve-context"],
+        vec!["--context=s0"],
+        vec!["--context", "s0"],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let dst = d.join(format!("sel{}", idx)).to_string_lossy().into_owned();
+        let mut args: Vec<&str> = flags.clone();
+        args.push(src_s);
+        args.push(dst.as_str());
+        let r = i(&args);
+        assert_eq!(r.code, 0, "flags={:?} err={}", flags, r.err());
+        assert!(std::fs::metadata(&dst).unwrap().is_file(), "flags={:?}", flags);
+    }
+
+    // 參考實測：`--context CTX`（無 '='）會貪心吃掉 CTX，剩下 1 個 operand
+    let r = i(&["--context", "s0", src_s]);
+    assert_eq!(r.code, 1, "{}", r.err());
+    assert_eq!(
+        r.err().lines().next().unwrap(),
+        format!("install: missing destination file operand after '{}'", src),
+        "{}",
+        r.err()
+    );
+}
+
+#[test]
+fn strip_flag_reports_program_failure() {
+    // guest 內無 strip 程式 → 只能觀察失敗路徑；參考（host 有 strip）為
+    // "strip: <dst>: file format not recognized" + "install: strip program failed: ..."
+    let d = fresh("strip");
+    let src = d.join("src").to_string_lossy().into_owned();
+    write(&src, "payload", 0o644);
+    let dst = d.join("dsts").to_string_lossy().into_owned();
+    let r = i(&["-s", &src, &dst]);
+    assert_eq!(r.code, 1, "{}", r.err());
+    assert!(r.err().contains("strip"), "{}", r.err());
 }

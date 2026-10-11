@@ -94,7 +94,7 @@
 | 30 | `tac` | ☑ | 91.46% |
 | 31 | `paste` | ☑ | 83.91% |
 | 32 | `cut` | ☑ | 87.92% |
-| 33 | `seq` | ☐ | |
+| 33 | `seq` | ☑ | guest test PASS、coverage 80.21% |
 | 34 | `tee` | ☑ | 80.28% |
 
 ## B. 編碼／checksum／hash（21）
@@ -155,17 +155,17 @@
 | 72 | `cp` | ☑ | coverage 81.44%；mode/ownership/symlink/`-a` |
 | 73 | `rm` | ☑ | coverage 83.06% |
 | 74 | `touch` | ☑ | guest test PASS、coverage 94.19% |
-| 75 | `install` | ☐ | |
-| 76 | `mkfifo` | ☐ | 需要特權或 syscall |
-| 77 | `mknod` | ☐ | 需要特權 |
-| 78 | `dircolors` | ☐ | |
+| 75 | `install` | ☑ | guest test PASS、coverage 80.02% |
+| 76 | `mkfifo` | ☑ | guest（root）可測、coverage 93.31% |
+| 77 | `mknod` | ☑ | guest（root）建 b/c 裝置、coverage 91.18% |
+| 78 | `dircolors` | ☑ | guest test PASS、coverage 91.73% |
 | 79 | `chmod` | ☑ | guest test PASS、coverage 89.26% |
 | 80 | `chgrp` | ☑ | guest test PASS、coverage 94.83% |
 | 81 | `chown` | ☑ | guest test PASS、coverage 100.00% |
-| 82 | `chcon` | ☐ | 需要 SELinux |
+| 82 | `chcon` | ☑ | guest 無 policy 但 tmpfs 可存 label xattr、coverage 85.51% |
 | 83 | `truncate` | ☑ | coverage 88.44% |
-| 84 | `mktemp` | ☐ | |
-| 85 | `shred` | ☐ | |
+| 84 | `mktemp` | ☑ | guest test PASS、coverage 82.09% |
+| 85 | `shred` | ☑ | guest test PASS、coverage 86.82% |
 
 ## E. 程序／環境／身分（26）
 

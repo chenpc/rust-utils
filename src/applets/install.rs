@@ -44,6 +44,7 @@ struct Cfg {
     strip: bool,
     verbose: bool,
     backup: Backup,
+    unprivileged: bool,
 }
 
 pub fn run(args: &[String], stdin: In, stdout: Out, stderr: Out) -> i32 {
@@ -67,6 +68,7 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
         strip: false,
         verbose: false,
         backup: Backup::None,
+        unprivileged: false,
     };
     let mut operands: Vec<String> = Vec::new();
     let mut no_more_opts = false;
@@ -84,6 +86,31 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
         }
         if a.starts_with("--") {
             let name = a[2..].split('=').next().unwrap_or("").to_string();
+            let name = crate::pathname::infer_long_opt(
+                &name,
+                &[
+                    "backup",
+                    "compare",
+                    "directory",
+                    "directory-to-suffix",
+                    "group",
+                    "help",
+                    "mode",
+                    "no-target-directory",
+                    "owner",
+                    "preserve-timestamps",
+                    "preserve-context",
+                    "strip",
+                    "suffix",
+                    "target-directory",
+                    "unprivileged",
+                    "verbose",
+                    "version",
+                    "context",
+                ],
+            )
+            .map(|full| full.to_string())
+            .unwrap_or(name);
             match name.as_str() {
                 "directory" => c.dirs = true,
                 "directory-to-suffix" => {
@@ -91,36 +118,46 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
                     return Err(unexpected(&a, stderr));
                 }
                 "target-directory" => {
-                    c.target_dir = Some(long_value(&a, args, &mut i, "target-directory", stderr)?);
+                    c.target_dir =
+                        Some(long_value(&a, args, &mut i, "target-directory", "DIRECTORY", stderr)?);
                 }
                 "no-target-directory" => c.no_target_dir = true,
                 "mode" => {
-                    let spec = long_value(&a, args, &mut i, "mode", stderr)?;
+                    let spec = long_value(&a, args, &mut i, "mode", "MODE", stderr)?;
                     c.mode = Some(match parse_install_mode(&spec, stderr) {
                         Some(m) => m,
                         None => return Err(1),
                     });
                 }
                 "group" => {
-                    let spec = long_value(&a, args, &mut i, "group", stderr)?;
+                    let spec = long_value(&a, args, &mut i, "group", "GROUP", stderr)?;
                     match parse_id(&spec, true, stderr) {
                         Some(v) => c.gid = Some(v),
                         None => return Err(1),
                     }
                 }
                 "owner" => {
-                    let spec = long_value(&a, args, &mut i, "owner", stderr)?;
+                    let spec = long_value(&a, args, &mut i, "owner", "OWNER", stderr)?;
                     match parse_id(&spec, false, stderr) {
                         Some(v) => c.uid = Some(v),
                         None => return Err(1),
                     }
                 }
                 "preserve-timestamps" => c.preserve_times = true,
+                // SELinux 相關選項（本建置無 SELinux）：照單接受、不產生效果
+                "preserve-context" => {}
+                "context" => {
+                    // 參考實測：`--context CTX` 沒有 '=' 時會貪心吃掉下一個 operand
+                    if !a.contains('=') && i < args.len() && !args[i].starts_with('-') {
+                        i += 1;
+                    }
+                }
+                "unprivileged" => c.unprivileged = true,
                 "compare" => c.compare = true,
                 "strip" => c.strip = true,
                 "verbose" => c.verbose = true,
                 "suffix" => {
-                    let s = long_value(&a, args, &mut i, "suffix", stderr)?;
+                    let s = long_value(&a, args, &mut i, "suffix", "SUFFIX", stderr)?;
                     c.backup = Backup::Simple(s);
                 }
                 "backup" => {
@@ -134,7 +171,16 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
                         "simple" | "none" | "existing" => Backup::Simple(backup_suffix()),
                         "numbered" => Backup::Numbered,
                         _ => {
-                            writeln!(stderr, "install: invalid backup type: '{}'", how).ok();
+                            // clap 風格：invalid value + possible values
+                            writeln!(stderr, "error: invalid value '{}' for '--backup[=<METHOD>]'", how).ok();
+                            writeln!(stderr).ok();
+                            writeln!(
+                                stderr,
+                                "  [possible values: none, numbered, existing, simple]"
+                            )
+                            .ok();
+                            writeln!(stderr).ok();
+                            writeln!(stderr, "For more information, try '--help'.").ok();
                             return Err(1);
                         }
                     };
@@ -166,33 +212,35 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
                 'v' => c.verbose = true,
                 'T' => c.no_target_dir = true,
                 'Z' => {}
+                'P' => {}
+                'U' => c.unprivileged = true,
                 't' => {
-                    let v = short_value(&rest, args, &mut i, 't', &mut k, stderr)?;
+                    let v = short_value(&rest, args, &mut i, 't', "DIRECTORY", &mut k, stderr)?;
                     c.target_dir = Some(v);
                 }
                 'm' => {
-                    let spec = short_value(&rest, args, &mut i, 'm', &mut k, stderr)?;
+                    let spec = short_value(&rest, args, &mut i, 'm', "MODE", &mut k, stderr)?;
                     c.mode = Some(match parse_install_mode(&spec, stderr) {
                         Some(m) => m,
                         None => return Err(1),
                     });
                 }
                 'o' => {
-                    let spec = short_value(&rest, args, &mut i, 'o', &mut k, stderr)?;
+                    let spec = short_value(&rest, args, &mut i, 'o', "OWNER", &mut k, stderr)?;
                     match parse_id(&spec, false, stderr) {
                         Some(v) => c.uid = Some(v),
                         None => return Err(1),
                     }
                 }
                 'g' => {
-                    let spec = short_value(&rest, args, &mut i, 'g', &mut k, stderr)?;
+                    let spec = short_value(&rest, args, &mut i, 'g', "GROUP", &mut k, stderr)?;
                     match parse_id(&spec, true, stderr) {
                         Some(v) => c.gid = Some(v),
                         None => return Err(1),
                     }
                 }
                 'S' => {
-                    let s = short_value(&rest, args, &mut i, 'S', &mut k, stderr)?;
+                    let s = short_value(&rest, args, &mut i, 'S', "SUFFIX", &mut k, stderr)?;
                     c.backup = Backup::Simple(s);
                 }
                 'b' => c.backup = Backup::Simple(backup_suffix()),
@@ -239,7 +287,7 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
         let def_masked = 0o777u32 & !current_umask();
         let mut rc = 0;
         for d in &operands {
-            if let Err(e) = mkdir_p(d, def_masked, c.mode, c.verbose, stdout) {
+            if let Err(e) = mkdir_p(d, def_masked, c.mode, c.verbose.then_some(""), stdout) {
                 writeln!(stderr, "install: cannot create directory '{}': {}", d, e).ok();
                 rc = 1;
             }
@@ -296,7 +344,7 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
                     &ps,
                     0o777u32 & !current_umask(),
                     None,
-                    c.verbose,
+                    c.verbose.then_some("install: "),
                     stdout,
                 ) {
                     writeln!(stderr, "install: cannot create directory '{}': {}", ps, e).ok();
@@ -454,15 +502,24 @@ fn apply_post(
         };
         if unsafe { chown(cpath.as_ptr(), uid, gid) } != 0 {
             let e = std::io::Error::last_os_error();
-            writeln!(
-                stderr,
-                "install: failed to chown '{}': changing ownership of '{}': {}.",
-                dst,
-                dst,
-                io_reason_pub(&e)
-            )
-            .ok();
-            return Err(());
+            // -U/--unprivileged：無特權時 chown 失敗不報、且後面的 chmod 仍會套用（參考實測 mode 755）
+            if !c.unprivileged {
+                let what = if c.uid.is_some() {
+                    "changing ownership of"
+                } else {
+                    "changing group of"
+                };
+                writeln!(
+                    stderr,
+                    "install: failed to chown '{}': {} '{}': {}",
+                    dst,
+                    what,
+                    dst,
+                    io_reason_pub(&e)
+                )
+                .ok();
+                return Err(());
+            }
         }
     }
     // 參考實測：ownership 失敗時 mode 不會被套用（chown 在前、chmod 在後）
@@ -540,14 +597,21 @@ fn mkdir_p(
     path: &str,
     def_mode: u32,
     explicit: Option<u32>,
-    verbose: bool,
+    verbose: Option<&str>,
     stdout: Out,
 ) -> Result<(), String> {
     let p = std::path::Path::new(path);
     if p.is_dir() {
         return Ok(());
     }
-    let mut cur = std::path::PathBuf::new();
+    // `components()` 會過濾掉絕對路徑的 '/' 前綴，若直接 push 就會把絕對路徑
+    // 變成相對於 CWD 的相對路徑（參考實測：install -D 必須建立絕對路徑的目錄）
+    let mut cur = if path.starts_with('/') {
+        std::path::PathBuf::from("/")
+    } else {
+        std::path::PathBuf::new()
+    };
+    let mut created = false;
     for comp in crate::pathname::components(path) {
         if comp.is_empty() {
             continue;
@@ -566,16 +630,21 @@ fn mkdir_p(
         match fs::DirBuilder::new().mode(0o777).create(&cur) {
             Ok(()) => {
                 let _ = fs::set_permissions(&cur, fs::Permissions::from_mode(m));
-                if verbose {
-                    writeln!(
-                        stdout,
-                        "creating directory '{}'",
-                        cur.to_string_lossy()
-                    )
-                    .ok();
-                }
+                created = true;
             }
-            Err(e) => return Err(io_reason_pub(&e)),
+            Err(e) => {
+                if e.raw_os_error() == Some(17 /* EEXIST */) && !cur.is_dir() {
+                    // 組件存在但不是目錄：真正原因是 ENOTDIR（同 GNU install -d）
+                    return Err("Not a directory".to_string());
+                }
+                return Err(io_reason_pub(&e));
+            }
+        }
+    }
+    // 參考實測：只印一筆、用傳入的整個 path；-d 無 prefix、-D 帶 "install: " prefix
+    if created {
+        if let Some(pfx) = verbose {
+            writeln!(stdout, "{}creating directory '{}'", pfx, path).ok();
         }
     }
     let _ = p;
@@ -672,12 +741,19 @@ Options:
     .ok();
 }
 
-fn long_value(a: &str, args: &[String], i: &mut usize, long: &str, stderr: Out) -> Result<String, i32> {
+fn long_value(
+    a: &str,
+    args: &[String],
+    i: &mut usize,
+    long: &str,
+    metavar: &str,
+    stderr: Out,
+) -> Result<String, i32> {
     if let Some(pos) = a.find('=') {
         return Ok(a[pos + 1..].to_string());
     }
     if *i >= args.len() {
-        crate::pathname::clap_value_required(long, "VALUE", stderr);
+        crate::pathname::clap_value_required(long, metavar, stderr);
         return Err(1);
     }
     let v = args[*i].clone();
@@ -690,16 +766,18 @@ fn short_value(
     args: &[String],
     i: &mut usize,
     ch: char,
+    metavar: &str,
     k: &mut usize,
     stderr: Out,
 ) -> Result<String, i32> {
     if !rest.is_empty() {
         // 吃掉剩餘 cluster（不可用 usize::MAX：呼叫端 k += 1 會溢位 panic）
         *k = usize::MAX - 1;
-        return Ok(rest.to_string());
+        // clap：`-X=value` 的 '=' 不屬於 value
+        return Ok(rest.strip_prefix('=').unwrap_or(rest).to_string());
     }
     if *i >= args.len() {
-        crate::pathname::clap_value_required(&ch.to_string(), "VALUE", stderr);
+        crate::pathname::clap_value_required(&ch.to_string(), metavar, stderr);
         return Err(1);
     }
     let v = args[*i].clone();

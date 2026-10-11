@@ -145,6 +145,10 @@ fn mkdir_one(op: &str, mode: Option<u32>, parents: bool, verbose: bool, stdout: 
                     if parents && p.is_dir() {
                         return Ok(());
                     }
+                    if parents {
+                        // -p：組件存在但不是目錄 → 真正原因是 ENOTDIR
+                        return Err(std::io::Error::from_raw_os_error(20 /* ENOTDIR */));
+                    }
                     return Err(e);
                 }
                 return Err(e);

@@ -226,7 +226,7 @@ fn process(
     rc
 }
 
-fn apply_spec(cur: u32, spec: &Spec) -> u32 {
+pub fn apply_spec(cur: u32, spec: &Spec) -> u32 {
     let mut acc = cur;
     for op in &spec.0 {
         acc = match op {

@@ -281,6 +281,26 @@ pub fn clap_value_required(long: &str, metavar: &str, stderr: crate::Out) {
     writeln!(stderr, "For more information, try '--help'.").ok();
 }
 
+/// clap `infer_long_args` 語意：長選項可用「唯一前綴」指定。
+/// 實測（參考 binary）：`mktemp --q` = `--quiet`、`mktemp --tmpdi` = `--tmpdir`、
+/// `shred --verb` = `--verbose`、`mknod --hel` = `--help`；
+/// 歧義（`shred --v` 對 `--verbose`/`--version`）與無匹配一律回傳 None，
+/// 由各 applet 走 unknown-option 錯誤路徑（clap 在歧義時还会给模糊 tip，本專案未重現）。
+pub fn infer_long_opt<'a>(name: &str, longs: &[&'a str]) -> Option<&'a str> {
+    if name.is_empty() {
+        return None;
+    }
+    if let Some(exact) = longs.iter().find(|l| **l == name) {
+        return Some(exact);
+    }
+    let mut hits = longs.iter().filter(|l| l.starts_with(name));
+    let first = hits.next()?;
+    if hits.next().is_some() {
+        return None;
+    }
+    Some(first)
+}
+
 /// 詞法化：處理 `.`、`..`、多餘 `/`，不碰檔案系統。
 /// 相對路徑開頭的 `..` 會保留（無法在詞法層去掉）。
 pub fn lexical(absolute: bool, comps: &[&str]) -> Vec<String> {

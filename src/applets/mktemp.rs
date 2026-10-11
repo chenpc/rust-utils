@@ -22,6 +22,7 @@ struct Opts {
     quiet: bool,
     tmpdir: Option<String>,
     suffix: Option<String>,
+    t_flag: bool,
     operands: Vec<String>,
 }
 
@@ -39,6 +40,7 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
         quiet: false,
         tmpdir: None,
         suffix: None,
+        t_flag: false,
         operands: Vec::new(),
     };
     let mut no_more_opts = false;
@@ -56,12 +58,27 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
         }
         if a.starts_with("--") {
             let name = a[2..].split('=').next().unwrap_or("").to_string();
+            let name = crate::pathname::infer_long_opt(
+                &name,
+                &[
+                    "directory",
+                    "dry-run",
+                    "help",
+                    "quiet",
+                    "suffix",
+                    "tmpdir",
+                    "version",
+                ],
+            )
+            .map(|full| full.to_string())
+            .unwrap_or(name);
             match name.as_str() {
                 "directory" | "dirs" => o.directory = true,
                 "dry-run" => o.dry_run = true,
                 "quiet" => o.quiet = true,
                 "suffix" => {
-                    o.suffix = Some(long_value(&a, args, &mut i, "suffix", &o, stderr)?);
+                    o.suffix =
+                        Some(long_value(&a, args, &mut i, "suffix", "SUFFIX", &o, stderr)?);
                 }
                 "tmpdir" => {
                     if let Some(pos) = a.find('=') {
@@ -91,7 +108,7 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
                 'd' => o.directory = true,
                 'u' => o.dry_run = true,
                 'q' => o.quiet = true,
-                't' => {}
+                't' => o.t_flag = true,
                 'p' => {
                     let v = short_value(&rest, args, &mut i, 'p', &mut k, &o, stderr)?;
                     o.tmpdir = Some(v);
@@ -126,7 +143,7 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
     }
 
     match build_name(&o, stdout, stderr) {
-        Ok(name) => {
+        Ok((name, template)) => {
             if o.dry_run {
                 writeln!(stdout, "{}", name).ok();
                 return Err(0);
@@ -138,7 +155,16 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
                 }
                 Err(e) => {
                     if !o.quiet {
-                        writeln!(stderr, "mktemp: failed to create {}: {}", name, e).ok();
+                        // 規格：`mktemp: failed to create file|directory via template '<未隨機化模板>': <reason>`
+                        let kind = if o.directory { "directory" } else { "file" };
+                        writeln!(
+                            stderr,
+                            "mktemp: failed to create {} via template '{}': {}",
+                            kind,
+                            template,
+                            strip_os_error(&e)
+                        )
+                        .ok();
                     }
                     Ok(1)
                 }
@@ -149,7 +175,7 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
 }
 
 /// 組出最終路徑（含隨機替換）。回 Err(1) 表示已印錯誤。
-fn build_name(o: &Opts, _stdout: Out, stderr: Out) -> Result<String, i32> {
+fn build_name(o: &Opts, _stdout: Out, stderr: Out) -> Result<(String, String), i32> {
     let quiet = o.quiet;
     let mut fail = |msg: String| -> i32 {
         if !quiet {
@@ -179,6 +205,23 @@ fn build_name(o: &Opts, _stdout: Out, stderr: Out) -> Result<String, i32> {
         } else {
             format!("{}/{}", d.trim_end_matches('/'), template)
         }
+    } else if o.t_flag {
+        // GNU 把 -t 當成 no-op，參考實測則以 TMPDIR（或 /tmp）作為前綴；
+        // X 數量檢查先於目錄分隔符錯誤（參考：mktemp -t 'sub/dir.X'）
+        if !has_run_of_x(&template, 3) {
+            return Err(fail(format!("too few X's in template '{}'", template)));
+        }
+        if template.contains('/') {
+            return Err(fail(format!(
+                "invalid template, '{}', contains directory separator",
+                template
+            )));
+        }
+        format!(
+            "{}/{}",
+            tmpdir_env().trim_end_matches('/'),
+            template
+        )
     } else if o.operands.is_empty() {
         format!("{}/{}", tmpdir_env(), template)
     } else {
@@ -220,7 +263,15 @@ fn build_name(o: &Opts, _stdout: Out, stderr: Out) -> Result<String, i32> {
         }
     };
     let _ = o;
-    Ok(final_path)
+    Ok((final_path, path))
+}
+
+/// 去掉 io::Error Display 尾端的 ` (os error N)`（規格訊息只留 reason）
+fn strip_os_error(msg: &str) -> String {
+    match msg.rfind(" (os error ") {
+        Some(i) => msg[..i].to_string(),
+        None => msg.to_string(),
+    }
 }
 
 enum ReplErr {
@@ -228,60 +279,26 @@ enum ReplErr {
     NoX(String),
 }
 
-/// 找結尾的 X _run（至少 3 個）並替換為同長度隨機 alnum。
+/// 找「最後一段 X run」（至少 3 個）並就地替換為同長度隨機 alnum。
+/// 參考實測：run 不必在結尾（`dXXXXtail` → `d<rand>tail`），但長度 < 3 即報
+/// "too few X's"（`aXXXbXX` 雖然前面有 3 個 X，最後一段只有 2 個 → 錯誤）。
 fn replace_x(path: &str, suffix: Option<&str>) -> Result<String, ReplErr> {
     let chars: Vec<char> = path.chars().collect();
-    // 取最後一個 path component 內的 X run
-    let comp_start = chars.iter().rposition(|c| *c == '/').map(|p| p + 1).unwrap_or(0);
-    let mut n = 0usize;
-    let mut idx = chars.len();
-    while idx > comp_start && chars[idx - 1] == 'X' {
-        n += 1;
-        idx -= 1;
+    let last_x = match chars.iter().rposition(|c| *c == 'X') {
+        Some(p) => p,
+        None => return Err(ReplErr::NoX(path.to_string())),
+    };
+    let mut start = last_x + 1;
+    while start > 0 && chars[start - 1] == 'X' {
+        start -= 1;
     }
-    // 中間的 X run（例如 mktemp 'XXX'）
-    if n == 0 {
-        // 找任意位置的連續 X run
-        let mut best = 0usize;
-        let mut best_start = 0usize;
-        let mut run = 0usize;
-        for (i, c) in chars.iter().enumerate() {
-            if *c == 'X' {
-                run += 1;
-                if run > best {
-                    best = run;
-                    best_start = i + 1 - run;
-                }
-            } else {
-                run = 0;
-            }
-        }
-        if best < 3 {
-            return Err(if best == 0 {
-                ReplErr::NoX(path.to_string())
-            } else {
-                ReplErr::FewX(path.to_string())
-            });
-        }
-        let mut out = String::new();
-        for (i, c) in chars.iter().enumerate() {
-            if i >= best_start && i < best_start + best {
-                continue;
-            }
-            out.push(*c);
-        }
-        out.push_str(&rand_name(best));
-        if let Some(s) = suffix {
-            out.push_str(s);
-        }
-        return Ok(out);
-    }
-    if n < 3 {
+    let run = last_x + 1 - start;
+    if run < 3 {
         return Err(ReplErr::FewX(path.to_string()));
     }
-    // idx.. 即結尾的 X run：直接略過（替換為隨機字元）
-    let mut out: String = chars[..idx].iter().collect();
-    out.push_str(&rand_name(n));
+    let mut out: String = chars[..start].iter().collect();
+    out.push_str(&rand_name(run));
+    out.extend(chars[last_x + 1..].iter());
     if let Some(s) = suffix {
         out.push_str(s);
     }
@@ -290,6 +307,20 @@ fn replace_x(path: &str, suffix: Option<&str>) -> Result<String, ReplErr> {
 
 fn base_name(p: &str) -> String {
     crate::pathname::base_part(p).to_string()
+}
+
+/// 最後一段連續 'X' 是否有 n 個以上（與 replace_x 的判定一致）。
+fn has_run_of_x(s: &str, n: usize) -> bool {
+    let chars: Vec<char> = s.chars().collect();
+    let last_x = match chars.iter().rposition(|c| *c == 'X') {
+        Some(p) => p,
+        None => return false,
+    };
+    let mut start = last_x + 1;
+    while start > 0 && chars[start - 1] == 'X' {
+        start -= 1;
+    }
+    last_x + 1 - start >= n
 }
 
 fn tmpdir_env() -> String {
@@ -360,20 +391,31 @@ fn create(path: &str, directory: bool) -> Result<(), String> {
 }
 
 fn print_help(stdout: Out) {
-    writeln!(
+    write!(
         stdout,
-        "Create a temporary file or directory.\n\n\
-Usage: mktemp [OPTION]... [TEMPLATE]\n\n\
-Options:\n\
-  -d, --directory  Make a directory instead of a file\n\
-  -u, --dry-run  do not create anything; merely print a name (unsafe)\n\
-  -q, --quiet  Fail silently if an error occurs.\n\
-  --suffix <SUFFIX>  append SUFFIX to TEMPLATE; SUFFIX must not contain a path separator. This option is implied if TEMPLATE does not end with X.\n\
-  -p <DIR>  short form of --tmpdir\n\
-  --tmpdir[=<DIR>]  interpret TEMPLATE relative to DIR; if DIR is not specified, use $TMPDIR ($TMP on windows) if set, else /tmp. With this option, TEMPLATE must not be an absolute name; unlike with -t, TEMPLATE may contain slashes, but mktemp creates only the final component\n\
-  -t  Generate a template (using the supplied prefix and TMPDIR (TMP on windows) if set) to create a filename template [deprecated]\n\
-  -h, --help  Print help\n\
-  -V, --version  Print version"
+        r#"Create a temporary file or directory.
+
+Usage: mktemp [OPTION]... [TEMPLATE]
+
+Arguments:
+  [template]  
+
+Options:
+  -d, --directory        Make a directory instead of a file
+  -u, --dry-run          do not create anything; merely print a name (unsafe)
+  -q, --quiet            Fail silently if an error occurs.
+      --suffix <SUFFIX>  append SUFFIX to TEMPLATE; SUFFIX must not contain a path separator. This
+                         option is implied if TEMPLATE does not end with X.
+  -p <DIR>               short form of --tmpdir
+      --tmpdir[=<DIR>]   interpret TEMPLATE relative to DIR; if DIR is not specified, use $TMPDIR
+                         ($TMP on windows) if set, else /tmp. With this option, TEMPLATE must not be
+                         an absolute name; unlike with -t, TEMPLATE may contain slashes, but mktemp
+                         creates only the final component
+  -t                     Generate a template (using the supplied prefix and TMPDIR (TMP on windows)
+                         if set) to create a filename template [deprecated]
+  -h, --help             Print help
+  -V, --version          Print version
+"#
     )
     .ok();
 }
@@ -383,6 +425,7 @@ fn long_value(
     args: &[String],
     i: &mut usize,
     long: &str,
+    metavar: &str,
     o: &Opts,
     stderr: Out,
 ) -> Result<String, i32> {
@@ -390,10 +433,11 @@ fn long_value(
         return Ok(a[pos + 1..].to_string());
     }
     if *i >= args.len() {
+        // 參考實測：措辭用該 option 的 metavar（<SUFFIX>），且 rc = 1（不是 clap 預設的 2）
         if !o.quiet {
-            crate::pathname::clap_value_required(long, "VALUE", stderr);
+            crate::pathname::clap_value_required(long, metavar, stderr);
         }
-        return Err(2);
+        return Err(1);
     }
     let v = args[*i].clone();
     *i += 1;
@@ -410,8 +454,14 @@ fn short_value(
     stderr: Out,
 ) -> Result<String, i32> {
     if !rest.is_empty() {
+        // `-p=` 是「空值」（clap 語意）；`-pDIR` 則是attached 值
+        let v = if let Some(v) = rest.strip_prefix('=') {
+            v.to_string()
+        } else {
+            rest.to_string()
+        };
         *k = usize::MAX - 1;
-        return Ok(rest.to_string());
+        return Ok(v);
     }
     if *i >= args.len() {
         if !o.quiet {
@@ -428,8 +478,10 @@ fn short_value(
 fn unexpected(arg: &str, stderr: Out) -> i32 {
     writeln!(stderr, "error: unexpected argument '{}' found", arg).ok();
     writeln!(stderr).ok();
-    writeln!(stderr, "  tip: to pass '{}' as a value, use '-- {}'", arg, arg).ok();
-    writeln!(stderr).ok();
+    if arg.starts_with('-') {
+        writeln!(stderr, "  tip: to pass '{}' as a value, use '-- {}'", arg, arg).ok();
+        writeln!(stderr).ok();
+    }
     writeln!(stderr, "Usage: mktemp [OPTION]... [TEMPLATE]").ok();
     writeln!(stderr).ok();
     writeln!(stderr, "For more information, try '--help'.").ok();

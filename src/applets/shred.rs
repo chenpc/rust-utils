@@ -13,7 +13,7 @@
 
 use crate::{In, Out};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, Write};
 use std::os::unix::fs::PermissionsExt;
 
 const BLOCK: u64 = 4096;
@@ -55,6 +55,8 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
         verbose: false,
     };
     let mut operands: Vec<String> = Vec::new();
+    let mut passes_raw: Option<String> = None;
+    let mut size_raw: Option<String> = None;
     let mut no_more_opts = false;
     let mut i = 0usize;
     while i < args.len() {
@@ -70,6 +72,23 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
         }
         if a.starts_with("--") {
             let name = a[2..].split('=').next().unwrap_or("").to_string();
+            let name = crate::pathname::infer_long_opt(
+                &name,
+                &[
+                    "exact",
+                    "force",
+                    "help",
+                    "iterations",
+                    "random-source",
+                    "remove",
+                    "size",
+                    "verbose",
+                    "version",
+                    "zero",
+                ],
+            )
+            .map(|full| full.to_string())
+            .unwrap_or(name);
             match name.as_str() {
                 "remove" => {
                     let how = if let Some(pos) = a.find('=') {
@@ -85,8 +104,8 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
                         _ => {
                             writeln!(
                                 stderr,
-                                "error: invalid value '{}' for '--remove[=<HOW>]': invalid remove mode: '{}'",
-                                how, how
+                                "error: invalid value '{}' for '--remove[=<HOW>]'",
+                                how
                             )
                             .ok();
                             writeln!(stderr).ok();
@@ -102,22 +121,10 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
                     }
                 }
                 "iterations" => {
-                    c.passes = match long_num(&a, args, &mut i, "iterations", stderr) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            writeln!(stderr, "shred: invalid number of passes: '{}'", e).ok();
-                            return Err(1);
-                        }
-                    };
+                    passes_raw = Some(long_str(&a, args, &mut i, "iterations", stderr)?);
                 }
                 "size" => {
-                    c.size = match long_num(&a, args, &mut i, "size", stderr) {
-                        Ok(v) => Some(v),
-                        Err(e) => {
-                            writeln!(stderr, "shred: invalid file size: '{}'", e).ok();
-                            return Err(1);
-                        }
-                    };
+                    size_raw = Some(long_str(&a, args, &mut i, "size", stderr)?);
                 }
                 "random-source" => {
                     c.random_source = long_str(&a, args, &mut i, "random-source", stderr)?;
@@ -144,26 +151,8 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
             let ch = chars[k];
             let rest: String = chars[k + 1..].iter().collect();
             match ch {
-                'n' => {
-                    let raw = short_num(&rest, args, &mut i, 'n', &mut k, stderr)?;
-                    c.passes = match raw.parse::<u64>() {
-                        Ok(v) => v,
-                        Err(_) => {
-                            writeln!(stderr, "shred: invalid number of passes: '{}'", raw).ok();
-                            return Err(1);
-                        }
-                    };
-                }
-                's' => {
-                    let raw = short_num(&rest, args, &mut i, 's', &mut k, stderr)?;
-                    c.size = match parse_size(&raw) {
-                        Some(v) => Some(v),
-                        None => {
-                            writeln!(stderr, "shred: invalid file size: '{}'", raw).ok();
-                            return Err(1);
-                        }
-                    };
-                }
+                'n' => passes_raw = Some(short_num(&rest, args, &mut i, 'n', &mut k, stderr)?),
+                's' => size_raw = Some(short_num(&rest, args, &mut i, 's', &mut k, stderr)?),
                 'u' => c.remove = Remove::Wipe,
                 'z' => c.zero = true,
                 'f' => c.force = true,
@@ -177,16 +166,36 @@ fn run_inner(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> Result<i3
                     writeln!(stdout, "shred (uutils coreutils) 0.10.0").ok();
                     return Err(0);
                 }
-                c2 => return Err(unexpected(&c2.to_string(), stderr)),
+                c2 => return Err(unexpected(&format!("-{}", c2), stderr)),
             }
             k += 1;
         }
     }
 
     if operands.is_empty() {
-        writeln!(stderr, "shred: missing operand").ok();
+        writeln!(stderr, "shred: missing file operand").ok();
         writeln!(stderr, "Try 'shred --help' for more information.").ok();
         return Err(1);
+    }
+
+    // 數值驗證在 operand 檢查之後（參考：`shred -n f` 先報 missing file operand）
+    if let Some(raw) = &passes_raw {
+        match raw.parse::<u64>() {
+            Ok(v) => c.passes = v,
+            Err(_) => {
+                writeln!(stderr, "shred: invalid number of passes: '{}'", raw).ok();
+                return Err(1);
+            }
+        }
+    }
+    if let Some(raw) = &size_raw {
+        match parse_size(raw) {
+            Some(v) => c.size = Some(v),
+            None => {
+                writeln!(stderr, "shred: invalid file size: '{}'", raw).ok();
+                return Err(1);
+            }
+        }
     }
 
     let mut rc = 0;
@@ -244,15 +253,16 @@ fn shred_one(path: &str, c: &Cfg, stderr: Out) -> bool {
     if total_bytes > 0 {
         match read_random_source(&c.random_source, total_bytes) {
             Ok(v) => rand = v,
-            Err(e) => {
-                writeln!(
-                    stderr,
-                    "shred: {}: File write pass failed: {}",
-                    path, e
-                )
-                .ok();
-                return true;
-            }
+            Err(kind) => match kind {
+                RandErr::Open(e) => {
+                    writeln!(stderr, "shred: {}: {}", c.random_source, e).ok();
+                    return true;
+                }
+                RandErr::Read(e) => {
+                    writeln!(stderr, "shred: {}: File write pass failed: {}", path, e).ok();
+                    return true;
+                }
+            },
         }
         if (rand.len() as u64) < total_bytes {
             writeln!(
@@ -300,13 +310,22 @@ fn shred_one(path: &str, c: &Cfg, stderr: Out) -> bool {
     for _ in 0..c.passes {
         pass_no += 1;
         if c.verbose {
-            writeln!(stderr, "shred: {}: pass {}/{} (random)...", path, pass_no, c.passes)
-                .ok();
+            writeln!(
+                stderr,
+                "shred: {}: pass {}/{} (random)...",
+                path,
+                pass_no,
+                c.passes + if c.zero { 1 } else { 0 }
+            )
+            .ok();
         }
         if size == 0 {
             continue;
         }
         let chunk = &rand[((pass_no - 1) as usize * size as usize)..(pass_no as usize * size as usize)];
+        // 每一輪都從 offset 0 重寫（參考實測：`-z` 後整個檔案都是 0，
+        // 而非最後一段落在截斷範圍外）。
+        let _ = f.rewind();
         if let Err(e) = f.write_all(chunk) {
             writeln!(
                 stderr,
@@ -330,11 +349,13 @@ fn shred_one(path: &str, c: &Cfg, stderr: Out) -> bool {
         }
         if size > 0 {
             let zeros = vec![0u8; size as usize];
+            let _ = f.rewind();
             if let Err(e) = f.write_all(&zeros) {
                 writeln!(
                     stderr,
                     "shred: {}: File write pass failed: {}",
-                    path, e
+                    path,
+                    crate::pathname::io_reason_nosuffix(&e)
                 )
                 .ok();
                 return true;
@@ -387,11 +408,13 @@ fn wipe_remove(path: &str, c: &Cfg, stderr: Out) -> bool {
         .file_name()
         .map(|x| x.to_string_lossy().to_string())
         .unwrap_or_default();
-    let dir = parent.clone().unwrap_or_else(|| ".".to_string());
-    let prefix = if parent.is_some() {
-        format!("{}/", dir.trim_end_matches('/'))
-    } else {
-        String::new()
+    // Path::new("f").parent() == Some("")：空字串要當成「目前目錄」，
+    // 否則 prefix 會變成 "/" 而 rename 到 /0 失敗（實測踩到）。
+    let base = parent.clone().filter(|x| !x.is_empty());
+    let dir = base.clone().unwrap_or_else(|| ".".to_string());
+    let prefix = match base {
+        Some(d) => format!("{}/", d.trim_end_matches('/')),
+        None => String::new(),
     };
     let n0 = name.chars().count();
     let mut cur = path.to_string();
@@ -429,17 +452,32 @@ fn open_for_write(path: &str) -> std::io::Result<File> {
     OpenOptions::new().write(true).open(path)
 }
 
-fn read_random_source(path: &str, need: u64) -> Result<Vec<u8>, String> {
+enum RandErr {
+    /// 開檔失敗：訊息報來源路徑（`shred: <source>: <reason>`）
+    Open(String),
+    /// 讀取失敗／來源是目錄：訊息報目標檔（`shred: <target>: File write pass failed: <reason>`）
+    Read(String),
+}
+
+fn read_random_source(path: &str, need: u64) -> Result<Vec<u8>, RandErr> {
     let mut f = match File::open(path) {
         Ok(f) => f,
-        Err(e) => return Err(crate::pathname::io_reason_nosuffix(&e)),
+        Err(e) => return Err(RandErr::Open(crate::pathname::io_reason_nosuffix(&e))),
     };
-    let mut buf = vec![0u8; need as usize];
-    let _ = f.seek(SeekFrom::Start(0));
-    match f.read_exact(&mut buf) {
-        Ok(()) => Ok(buf),
-        Err(e) => Err(crate::pathname::io_reason_nosuffix(&e)),
+    // 來源比 need 短時回傳部分資料，由呼叫端報 "failed to fill whole buffer"
+    let mut buf: Vec<u8> = Vec::new();
+    let mut tmp = vec![0u8; 8192];
+    loop {
+        match f.read(&mut tmp) {
+            Ok(0) => break,
+            Ok(n) => buf.extend_from_slice(&tmp[..n]),
+            Err(e) => return Err(RandErr::Read(crate::pathname::io_reason_nosuffix(&e))),
+        }
+        if buf.len() as u64 >= need {
+            break;
+        }
     }
+    Ok(buf)
 }
 
 fn parse_size(s: &str) -> Option<u64> {
@@ -447,30 +485,35 @@ fn parse_size(s: &str) -> Option<u64> {
     if t.is_empty() {
         return None;
     }
-    let (num, mult) = match t.chars().last() {
-        Some('K') | Some('k') => (&t[..t.len() - 1], 1024u64),
-        Some('M') | Some('m') => (&t[..t.len() - 1], 1024u64 * 1024),
-        Some('G') | Some('g') => (&t[..t.len() - 1], 1024u64 * 1024 * 1024),
-        _ => (t, 1u64),
-    };
-    match num.parse::<u64>() {
-        Ok(v) => Some(v * mult),
-        Err(_) => None,
+    // 後綴表依本機參考實測：KB/kB=1000、K/k=1024、MB=1000^2、M/m=1024^2、
+    // GB=1000^3、G/g=1024^3、TB=1000^4、T/t=1024^4、P/p=1024^5、E/e=1024^6、b=512；
+    // 大寫 B 單獨不是後綴（`1B` 被拒）、`1Ki`/`1mb`/`1BB` 等亦被拒。
+    const TABLE: &[(&str, u64)] = &[
+        ("KB", 1_000u64),
+        ("kB", 1_000u64),
+        ("MB", 1_000_000u64),
+        ("GB", 1_000_000_000u64),
+        ("TB", 1_000_000_000_000u64),
+        ("K", 1024u64),
+        ("k", 1024u64),
+        ("M", 1024u64 * 1024),
+        ("m", 1024u64 * 1024),
+        ("G", 1024u64 * 1024 * 1024),
+        ("g", 1024u64 * 1024 * 1024),
+        ("T", 1024u64 * 1024 * 1024 * 1024),
+        ("t", 1024u64 * 1024 * 1024 * 1024),
+        ("P", 1024u64 * 1024 * 1024 * 1024 * 1024),
+        ("p", 1024u64 * 1024 * 1024 * 1024 * 1024),
+        ("E", 1024u64 * 1024 * 1024 * 1024 * 1024 * 1024),
+        ("e", 1024u64 * 1024 * 1024 * 1024 * 1024 * 1024),
+        ("b", 512u64),
+    ];
+    for (suf, mult) in TABLE {
+        if let Some(num) = t.strip_suffix(suf) {
+            return num.parse::<u64>().ok().and_then(|v| v.checked_mul(*mult));
+        }
     }
-}
-
-fn long_num(
-    a: &str,
-    args: &[String],
-    i: &mut usize,
-    long: &str,
-    stderr: Out,
-) -> Result<u64, String> {
-    let raw = match long_str(&a, args, i, long, stderr) {
-        Ok(v) => v,
-        Err(_) => return Err(String::new()),
-    };
-    raw.parse::<u64>().map_err(|_| raw)
+    t.parse::<u64>().ok()
 }
 
 fn long_str(
@@ -502,10 +545,16 @@ fn short_num(
 ) -> Result<String, i32> {
     if !rest.is_empty() {
         *k = usize::MAX - 1;
-        return Ok(rest.to_string());
+        // clap：`-X=value` 的 '=' 不屬於 value
+        return Ok(rest.strip_prefix('=').unwrap_or(rest).to_string());
     }
     if *i >= args.len() {
-        crate::pathname::clap_value_required(&ch.to_string(), value_metavar(ch), stderr);
+        let (long, metavar) = match ch {
+            'n' => ("iterations", "NUMBER"),
+            's' => ("size", "N"),
+            _ => ("value", "VALUE"),
+        };
+        crate::pathname::clap_value_required(long, metavar, stderr);
         return Err(1);
     }
     let v = args[*i].clone();
@@ -514,26 +563,67 @@ fn short_num(
     Ok(v)
 }
 
+const SHRED_HELP: &str = r#"Overwrite the specified FILE(s) repeatedly, in order to make it harder for even
+very expensive hardware probing to recover the data.
+
+Usage: shred [OPTION]... FILE...
+
+Arguments:
+  [file]...  
+
+Options:
+  -f, --force                          change permissions to allow writing if necessary
+  -n, --iterations <NUMBER>            overwrite N times instead of the default (3) [default: 3]
+  -s, --size <N>                       shred this many bytes (suffixes like K, M, G accepted)
+  -u                                   deallocate and remove file after overwriting
+      --remove[=<HOW>]                 like -u but give control on HOW to delete;  See below
+                                       [possible values: unlink, wipe, wipesync]
+  -v, --verbose                        show progress
+  -x, --exact                          do not round file sizes up to the next full block;
+                                       this is the default for non-regular files
+  -z, --zero                           add a final overwrite with zeros to hide shredding
+      --random-source <random-source>  take random bytes from FILE
+  -h, --help                           Print help
+  -V, --version                        Print version
+
+Delete FILE(s) if --remove (-u) is specified. The default is not to remove
+the files because it is common to operate on device files like /dev/hda, and
+those files usually should not be removed.
+
+CAUTION: Note that shred relies on a very important assumption: that the file
+system overwrites data in place. This is the traditional way to do things, but
+many modern file system designs do not satisfy this assumption. The following
+are examples of file systems on which shred is not effective, or is not
+guaranteed to be effective in all file system modes:
+
+ - log-structured or journal file systems, such as those supplied with
+   AIX and Solaris (and JFS, ReiserFS, XFS, Ext3, etc.)
+
+ - file systems that write redundant data and carry on even if some writes
+   fail, such as RAID-based file systems
+
+ - file systems that make snapshots, such as Network Appliance's NFS server
+
+ - file systems that cache in temporary locations, such as NFS
+   version 3 clients
+
+ - compressed file systems
+
+In the case of ext3 file systems, the above disclaimer applies (and shred is
+thus of limited effectiveness) only in data=journal mode, which journals file
+data in addition to just metadata. In both the data=ordered (default) and
+data=writeback modes, shred works as usual. Ext3 journal modes can be changed
+by adding the data=something option to the mount options for a particular
+file system in the /etc/fstab file, as documented in the mount man page (`man
+mount`).
+
+In addition, file system backups and remote mirrors may contain copies of
+the file that cannot be removed, and that will allow a shredded file to be
+recovered later.
+"#;
+
 fn print_help(stdout: Out) {
-    writeln!(
-        stdout,
-        "Overwrite the specified FILE(s) repeatedly, in order to make it harder\n\
-for even very expensive hardware procedures to recover the data.\n\n\
-Usage: shred [OPTION]... FILE...\n\n\
-Options:\n\
-  -f, --force  if necessary, change file permissions\n\
-  -n, --iterations <N>  overwrite N times instead of the default (3)\n\
-  --random-source=<FILE>  get random bytes from FILE\n\
-  -s, --size <N>  truncate the file to that size\n\
-  -u, --remove  remove the files after overwriting them\n\
-  --remove[=unlink|wipe|wipesync]  how to remove files\n\
-  -v, --verbose  indicate progress\n\
-  -x, --exact  do not round file sizes up to the next full block\n\
-  -z, --zero  add a final overwrite with zeros to hide shredding\n\
-  -h, --help  Print help\n\
-  -V, --version  Print version"
-    )
-    .ok();
+    write!(stdout, "{}", SHRED_HELP).ok();
 }
 
 fn unexpected(arg: &str, stderr: Out) -> i32 {
@@ -546,17 +636,11 @@ fn unexpected(arg: &str, stderr: Out) -> i32 {
     writeln!(stderr, "For more information, try '--help'.").ok();
     1
 }
-fn value_metavar(ch: char) -> &'static str {
-    match ch {
-        'n' | 's' => "N",
-        _ => "VALUE",
-    }
-}
-
 fn value_metavar_long(long: &str) -> &'static str {
     match long {
-        "iterations" | "size" => "N",
-        "random-source" => "FILE",
+        "iterations" => "NUMBER",
+        "size" => "N",
+        "random-source" => "random-source",
         "remove" => "HOW",
         _ => "VALUE",
     }

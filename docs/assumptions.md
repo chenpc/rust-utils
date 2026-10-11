@@ -187,3 +187,55 @@
 - **已知偏差 (2)：`.5` 的舍入方向**。`-f %.6g 100000.5 1 100002` → 參考 `100001 100002`（half-away），本實作 `100000 100002`（half-to-even，與先前 C/glibc `%.1g`、`%+.3g` 實測一致）。
 - **已知偏差 (3)：極端量位的多 operand run**。當字面量超出 f64（如 `seq 1e1200 1e1200 1e1201`），參考改用科學記號渲染（`1e+1200 2e+1200 …`），而單 operand（`seq 1e1200 1e1200`）又輸出完整展開——參考自身不一致；本實作一律完整十進位展開（數值相同）。`-f` 指定格式時兩者一致（`-f %g 1e1200 …` → `1e+1200`）。
 - **無限 operand**：`seq 1 1 inf` 兩邊都是無限輸出（測試不涵蓋）；`seq inf 1 2` 兩邊皆空輸出 rc0。
+
+## D 群叢集 5：install / mkfifo / mknod / dircolors / chcon / mktemp / shred
+
+依據：`docs/man/<applet>.1.gz`（GNU）為準；man 未載的措辭與邊界以本機參考（uutils coreutils 0.10.0，`/usr/lib/cargo/bin/coreutils/<applet>`，須以完整路徑執行——該目錄本身不可執行）實測對齊。探測記錄見 `docs/probes/cluster5.md`。
+
+### install（src/applets/install.rs）
+- verbose 措辭（man 未載，採參考逐字）：`-d -v` 每個 operand 只印一筆 `creating directory '<operand 原樣>'`（不逐層；目錄已存在則不印）；`-D -v` 印 `install: creating directory '<DEST 的父目錄>'`（帶 `install: ` 前綴，且只一筆），其後才是 `'SRC' -> 'DEST'`。
+- ownership 失敗（非 root）：`install: failed to chown '<dst>': changing ownership of '<dst>': <reason>`；只給 `-g` 時中段為 `changing group of`；皆無尾號句點。失敗時 chmod 不套用（dst 留在 copy 後的 0600）。`-U/--unprivileged` 時 chown 失敗不報錯、chmod 仍套用（參考 `-U -o root` → mode 755）。
+- `--context CTX`（無 `=`）在 clap 屬可选值但仍消耗下一個非旗標 token → `install --context s0 src` 只剩一個 operand → `install: missing destination file operand after 'src'`。`-Z`/`-P`/`--preserve-context` 接受但不作用。
+- `-s/--strip`：host 逐字 `strip: <dst>: file format not recognized` ＋ `install: strip program failed: strip process terminated abnormally - exit code: 1`；guest 無 `strip` 程式 → 測試只斷言 rc1 且 stderr 含 `strip`。
+- guest 無 `/etc/passwd`：`install -o root` → `install: invalid user: 'root'`（與 host 名稱查找失敗同措辭）→ 測試改用數字 id。
+- **已知偏差：`--strip-program <PROGRAM>` 未實作**（參考 help 列有此選項）。
+
+### mkfifo / mknod
+- `-m` 缺值一律用長名稱措辭 `error: a value is required for '--mode <MODE>' but none was supplied`（參考對短旗標也用長名稱）。
+- mode 解析錯誤延後到 positional 檢查之後（clap 先報缺少 `<fifo>...`/`<NAME>...`）。
+- `-Z`/`--context` 接受但不作用；`-Zfoo` 的附值被吞（不再把 `foo` 當短旗標簇）。
+- symbolic mode 基底 0666（`mkfifo`/`mknod` 共用 `chmod::apply_spec(0o666, spec)`）。
+- `mknod NAME c|b`（major/minor 全缺）→ `mknod: Special files require major and minor device numbers.`；major/minor 只接受十進位 plain（`010`→10、`0x10` 被拒為 `error: invalid value '0x10' for '[major]': invalid digit found in string`）；`-m` 給精確 mode 時在 mknod 之後 set_permissions。
+- `unexpected` 的 `tip:` 行只在 arg 以 `-` 開頭時印出。
+
+### dircolors
+- `TERM`/`COLORTERM` filter 行只影響其後條目；filter 在檔尾則無影響。內建 db 全為 filter 行 → 未設定 TERM 的 guest 預設輸出 `LS_COLORS='';`（兩邊一致）。
+- 別名：NORMAL/FILE→`fi`、PIPE→`pi`、LEFT→`lc`、RIGHT→`rc`；`OPTIONS`/`COLOR`/`EIGHTBIT` 識別但忽略。
+- 未識別 keyword → `dircolors: unrecognized keyword <KEY>`（KEY 含 `=` 時整串出現，例 `DI=v x` → `unrecognized keyword DI=v`）。
+- 一行僅一個 token → `dircolors: <name>:<lineno>: invalid line;  missing second token`（`line;` 後兩個空格）。
+- **政策 (1)（GNU man 勝參考）**：`-p, --print-database` 描述採 man 的 `output the contents of the internal colors database`；本機參考寫 `print the byte counts`（uutils 錯字）→ 不跟隨。
+
+### mktemp
+- `--suffix` 要求 X run 位於結尾，否则 `mktemp: with --suffix, template '<t>' must end in X`（含 `--suffix=` 空值、X run 不在結尾如 `aXXXXb`）。
+- `-t` 走 TMPDIR 前綴，且 X 檢查先於目錄分隔符檢查：`-t 'sub/dir.X'` → `mktemp: too few X's in template 'sub/dir.X'`；`-t 'a/bXXXXXX'` → `mktemp: invalid template, 'X', contains directory separator`。分支順序：`-p/--tmpdir` → `-t` → 無 operand → 路徑含目錄分隔符。
+- 建立失敗措辭 `mktemp: failed to create file via template '<template>': <reason>`（`-d` 為 `... via template` 的 directory 變體）。
+- **已知外觀偏差**：部分錯誤參考多一層引號（`template "'aXXXXb'"`），我方不加引號。
+
+### shred
+- 數值驗證排在 missing-operand 檢查之後：`shred -n <file>` → `shred: missing file operand`（檔案不變）。
+- 缺值措辭採長選項名與參考 metavar：`'--iterations <NUMBER>'`、`'--size <N>'`、`'--random-source <random-source>'`（help 的 metavar 同）。
+- size 後綴表採參考實測：`b`=512、`K`/`k`=1024、`KB`/`kB`=1000、`M`/`m`=1024²、`MB`=1000²、`G`/`g`=1024³、`GB`=1000³、`T`/`t`=1024⁴、`TB`=1000⁴、`P`/`p`=1024⁵、`E`/`e`=1024⁶；大寫 `B` 單獨不是後綴（`1B` 被拒）、`1Ki`/`1mb`/`1gb`/`1kb`/`1BB`/`1KK`/`1bB`/`1.5K` 皆被拒。
+- `-u`／`--remove[=wipe|wipesync|unlink]` 的 rename 序列採參考逐字：`renamed to 00000`→`0000`→`000`→`00`→`0`，最後一行主語回到原檔名（verbose 用完整路徑）；1 字元檔名只有 `renamed to 0`。`--remove`（無 HOW）等同 `-u`。
+- `--random-source`：只有開檔失敗才報來源路徑（`shred: <source>: No such file or directory`）；來源是目錄/讀取不足時報 `shred: <target>: File write pass failed: Is a directory|failed to fill whole buffer`。
+- `--help` 與參考 byte-identical（含 `  [file]...  ` 的尾隨兩空格）。
+
+### chcon
+- `-H`/`-L`/`-P` 在 clap 解析完成後才檢查衝突（`-L -R ctx d` 與 `-R -L ctx d` 皆接受）；`-H` 缺 operand 時為 `error: the following required arguments were not provided:` ＋ `  --recursive`。
+- 遞迴採 post-order（先子後自、entries 排序、`depth < 64` 防環）；`-L` 跟進所有連字號目錄、`-H` 只跟進命令列 operand、`-P`（預設）都不跟進。
+- `--preserve-root` 對 `/` 的兩段措辭：`chcon: warning: It is dangerous to operate recursively on '/'. Use --no-preserve-root to override this failsafe.` 再 `chcon: Modifying root path failed on '/'. permission denied.`
+- 無 context → `chcon: No files are specified.`（空行＋Try 行）；access 失敗 → `chcon: Accessing failed on '<p>'. No such file or directory (os error 2).`
+- guest 無 SELinux policy，但 tmpfs 可存 `security.selinux` xattr → 標 label／`--reference`／verbose 路徑可在 guest 實測；`-Z`/`--context` 不是 chcon 選項（GNU man 亦無）→ `error: unexpected argument '-Z' found`。
+
+### 本叢集 guest 結果
+`tests/install.rs`(13)、`tests/mkfifo.rs`(12)、`tests/mknod.rs`(16)、`tests/mktemp.rs`(14)、`tests/dircolors.rs`(11)、`tests/chcon.rs`(15)、`tests/shred.rs`(16) 全綠；coverage（門檻 80）install 80.02%、mkfifo 93.31%、mknod 91.18%、mktemp 82.09%、dircolors 91.73%、chcon 85.51%、shred 86.82%。全量迴歸 guest test PASS=92 FAIL=0。
+備註：`cargo test --test vdir|ls_extra|ls_coverage` 不產生自己的 profraw（ls 家族由 `tests/ls.rs`、`tests/dir.rs` 涵蓋，coverage.sh 報 83.15%）。

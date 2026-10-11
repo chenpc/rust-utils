@@ -25,16 +25,54 @@ fn usage_line() -> &'static str {
     "mknod [OPTION]... NAME TYPE [MAJOR MINOR]"
 }
 
+const MKNOD_HELP: &str = r#"Create the special file NAME of the given TYPE.
+
+Usage: mknod [OPTION]... NAME TYPE [MAJOR MINOR]
+
+Arguments:
+  <NAME>   name of the new file
+  <TYPE>   type of the new file (b, c, u or p)
+  [major]  major file type
+  [minor]  minor file type
+
+Options:
+  -m, --mode <MODE>      set file permission bits to MODE, not a=rw - umask
+  -Z                     set SELinux security context of each created directory to the default type
+      --context[=<CTX>]  like -Z, or if CTX is specified then set the SELinux or SMACK security
+                         context to CTX
+  -h, --help             Print help
+  -V, --version          Print version
+
+Mandatory arguments to long options are mandatory for short options too.
+-m, --mode=MODE set file permission bits to MODE, not a=rw - umask
+
+Both MAJOR and MINOR must be specified when TYPE is b, c, or u, and they
+must be omitted when TYPE is p. If MAJOR or MINOR begins with 0x or 0X,
+it is interpreted as hexadecimal; otherwise, if it begins with 0, as octal;
+otherwise, as decimal. TYPE may be:
+
+- b create a block (buffered) special file
+- c, u create a character (unbuffered) special file
+- p create a FIFO
+
+NOTE: your shell may have its own version of mknod, which usually supersedes
+the version described here. Please refer to your shell's documentation
+for details about the options it supports.
+"#;
+
 fn unexpected(arg: &str, stderr: Out) -> i32 {
     writeln!(stderr, "error: unexpected argument '{}' found", arg).ok();
     writeln!(stderr).ok();
-    writeln!(
-        stderr,
-        "  tip: to pass '{}' as a value, use '-- {}'",
-        arg, arg
-    )
-    .ok();
-    writeln!(stderr).ok();
+    if arg.starts_with('-') {
+        // clap 只在看起來像選項的 token 提供 tip（實測 `mknod c5 c 1 2 3` 無 tip 行）。
+        writeln!(
+            stderr,
+            "  tip: to pass '{}' as a value, use '-- {}'",
+            arg, arg
+        )
+        .ok();
+        writeln!(stderr).ok();
+    }
     writeln!(stderr, "Usage: {}", usage_line()).ok();
     writeln!(stderr).ok();
     writeln!(stderr, "For more information, try '--help'.").ok();
@@ -59,15 +97,16 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
         }
         if a.starts_with("--") {
             let name = a[2..].split('=').next().unwrap_or("").to_string();
+            let name = crate::pathname::infer_long_opt(
+                &name,
+                &["context", "help", "mode", "version"],
+            )
+            .map(|full| full.to_string())
+            .unwrap_or(name);
             match name.as_str() {
                 "context" => continue,
                 "help" => {
-                    writeln!(
-                        stdout,
-                        "Create special files or FIFOs.\n\nUsage: {}",
-                        usage_line()
-                    )
-                    .ok();
+                    write!(stdout, "{}", MKNOD_HELP).ok();
                     return 0;
                 }
                 "version" => {
@@ -104,6 +143,7 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
             match chars[k] {
                 'm' => {
                     let rest: String = chars[k + 1..].iter().collect();
+                    let rest = rest.strip_prefix('=').unwrap_or(&rest).to_string();
                     let spec = if !rest.is_empty() {
                         rest
                     } else {
@@ -126,12 +166,7 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
                 }
                 'Z' => {}
                 'h' => {
-                    writeln!(
-                        stdout,
-                        "Create special files or FIFOs.\n\nUsage: {}",
-                        usage_line()
-                    )
-                    .ok();
+                    write!(stdout, "{}", MKNOD_HELP).ok();
                     return 0;
                 }
                 'V' => {
@@ -185,6 +220,16 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
     };
 
     let mut dev: u64 = 0;
+    // b/c 需要 MAJOR 與 MINOR 兩個值；缺任一（含完全沒給）都是同一條錯誤
+    if needs_dev && operands.len() == 2 {
+        writeln!(
+            stderr,
+            "mknod: Special files require major and minor device numbers."
+        )
+        .ok();
+        writeln!(stderr, "{}", crate::pathname::usage_hint("mknod")).ok();
+        return 1;
+    }
     if operands.len() > 2 {
         // p 類型不該有 MAJOR/MINOR：非數字 → clap [major] 錯；數字 → 明示拒絕
         if !needs_dev {
@@ -261,6 +306,21 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
         writeln!(stderr, "{}: {}", crate::pathname::invoked_as("mknod"), io_reason_pub(&e)).ok();
         return 255;
     }
+    // mknod(2) 會套用 umask，但參考（uutils 0.10.0）對 `-m` 給的是精確 mode
+    // （umask 022 下 `-m 777` → 777、`-m 666` → 666）→ 事後 chmod 補回精確值。
+    if mode.is_some() {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = std::fs::set_permissions(&name, std::fs::Permissions::from_mode(perm)) {
+            writeln!(
+                stderr,
+                "{}: {}",
+                crate::pathname::invoked_as("mknod"),
+                io_reason_pub(&e)
+            )
+            .ok();
+            return 255;
+        }
+    }
     0
 }
 
@@ -277,17 +337,7 @@ fn makedev(major: u64, minor: u64) -> u64 {
 }
 
 fn apply_spec(spec: &crate::applets::chmod::Spec) -> u32 {
-    use crate::applets::chmod::Op;
-    let mut perm = 0u32;
-    for op in &spec.0 {
-        match op {
-            Op::Octal(m) => perm = *m,
-            Op::Sym(who, oper, perms) => match oper {
-                '+' => perm |= who & perms,
-                '-' => perm &= !(who & perms),
-                _ => perm = (perm & !who) | (who & perms),
-            },
-        }
-    }
-    perm
+    // 參考實測：symbolic 模式的起始值是 0o666（`-m u+wx` → 766、`-m go=r` → 644），
+    // 不是 0；who 省略時的 umask 處理在 chmod 的 parse_mode_chmod 内已完成。
+    crate::applets::chmod::apply_spec(0o666, spec)
 }

@@ -15,6 +15,37 @@
 use crate::pathname::usage_hint;
 use crate::{In, Out};
 
+const DIRCOLORS_USAGE: &str = "Usage: dircolors [OPTION]... [FILE]";
+
+const DIRCOLORS_HELP: &str = r#"Output commands to set the LS_COLORS environment variable.
+
+Usage: dircolors [OPTION]... [FILE]
+
+Options:
+  -b, --sh               output Bourne shell code to set LS_COLORS [alias: --bourne-shell]
+  -c, --csh              output C shell code to set LS_COLORS [alias: --c-shell]
+  -p, --print-database   output the contents of the internal colors database
+      --print-ls-colors  output fully escaped colors for display
+  -h, --help             Print help
+  -V, --version          Print version
+
+If FILE is specified, read it to determine which colors to use for which
+file types and extensions. Otherwise, a precompiled database is used.
+For details on the format of these files, run 'dircolors --print-database'
+"#;
+
+/// clap 風格的長選項候選（用於前綴推斷與 unknown-option tip）。
+const DIRCOLORS_LONGS: &[&str] = &[
+    "bourne-shell",
+    "c-shell",
+    "csh",
+    "help",
+    "print-database",
+    "print-ls-colors",
+    "sh",
+    "version",
+];
+
 const DEFAULT_DB: &str = concat!(
     "# Configuration file for dircolors, a utility to help you set the\n",
     "# LS_COLORS environment variable used by GNU ls with the --color option.\n",
@@ -239,7 +270,15 @@ fn keyword_code(key: &str) -> Option<&'static str> {
         "sticky_other_writable" => "tw",
         "other_writable" | "owr" => "ow",
         "sticky" => "st",
-        "exec" => "ex",
+        "exec" | "exe" => "ex",
+        // GNU dircolors 的別名（uutils man 未列 keyword 清單 → 本機自訂並記錄於 assumptions）
+        "normal" | "file" => "fi",
+        "pipe" => "pi",
+        "multi" => "mh",
+        "block.special" => "bd",
+        "char.special" => "cd",
+        "left" => "lc",
+        "right" => "rc",
         _ => return None,
     })
 }
@@ -296,21 +335,16 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
         }
         if a.starts_with("--") {
             let name = a[2..].split('=').next().unwrap_or("").to_string();
+            let name = crate::pathname::infer_long_opt(&name, DIRCOLORS_LONGS)
+            .map(|full| full.to_string())
+            .unwrap_or(name);
             match name.as_str() {
                 "sh" | "bourne-shell" => csh = false,
                 "csh" | "c-shell" => csh = true,
                 "print-database" => print_db = true,
                 "print-ls-colors" => print_ls = true,
                 "help" => {
-                    writeln!(
-                        stdout,
-                        "Output commands to set the LS_COLORS environment variable.\n\n\
-                         Usage: dircolors [OPTION]... [FILE]\n\n\
-                         If FILE is specified, read it to determine which colors to use for which\n\
-                         file types and extensions. Otherwise, a precompiled database is used.\n\
-                         For details on the format of these files, run 'dircolors --print-database'"
-                    )
-                    .ok();
+                    write!(stdout, "{}", DIRCOLORS_HELP).ok();
                     return 0;
                 }
                 "version" => {
@@ -327,15 +361,7 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
                 'c' => csh = true,
                 'p' => print_db = true,
                 'h' => {
-                    writeln!(
-                        stdout,
-                        "Output commands to set the LS_COLORS environment variable.\n\n\
-                         Usage: dircolors [OPTION]... [FILE]\n\n\
-                         If FILE is specified, read it to determine which colors to use for which\n\
-                         file types and extensions. Otherwise, a precompiled database is used.\n\
-                         For details on the format of these files, run 'dircolors --print-database'"
-                    )
-                    .ok();
+                    write!(stdout, "{}", DIRCOLORS_HELP).ok();
                     return 0;
                 }
                 'V' => {
@@ -443,12 +469,9 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
             writeln!(stderr, "dircolors: unrecognized keyword {}", key).ok();
             return 1;
         };
-        // key 本身含 '=' 時，uutils 以 '=' 串接 value（quirk，記錄於 assumptions）
-        let value = if key.contains('=') {
-            format!("{}={}", key, rest)
-        } else {
-            rest.to_string()
-        };
+        // value = rest 原樣（可含空白）；extension key 含 '=' 時不重複 key
+        // （例 `*.tar=01;31 x` → `*.tar=01;31=x:`）
+        let value = rest.to_string();
         entries.push((code, value));
     }
 
@@ -478,14 +501,18 @@ pub fn run(args: &[String], _stdin: In, stdout: Out, stderr: Out) -> i32 {
 fn unexpected(arg: &str, stderr: Out) -> i32 {
     writeln!(stderr, "error: unexpected argument '{}' found", arg).ok();
     writeln!(stderr).ok();
-    writeln!(
-        stderr,
-        "  tip: to pass '{}' as a value, use '-- {}'",
-        arg, arg
-    )
-    .ok();
+    // clap：未知長選項若為已知長選項的前綴 → 給 similar tip；否則給 value tip
+    let tip = if let Some(short) = arg.strip_prefix("--") {
+        match DIRCOLORS_LONGS.iter().find(|l| l.starts_with(short)) {
+            Some(l) => format!("  tip: a similar argument exists: '--{}'", l),
+            None => format!("  tip: to pass '{}' as a value, use '-- {}'", arg, arg),
+        }
+    } else {
+        format!("  tip: to pass '{}' as a value, use '-- {}'", arg, arg)
+    };
+    writeln!(stderr, "{}", tip).ok();
     writeln!(stderr).ok();
-    writeln!(stderr, "Usage: dircolors [OPTION]... [FILE]").ok();
+    writeln!(stderr, "{}", DIRCOLORS_USAGE).ok();
     writeln!(stderr, "For more information, try '--help'.").ok();
     1
 }
