@@ -239,3 +239,75 @@
 ### 本叢集 guest 結果
 `tests/install.rs`(13)、`tests/mkfifo.rs`(12)、`tests/mknod.rs`(16)、`tests/mktemp.rs`(14)、`tests/dircolors.rs`(11)、`tests/chcon.rs`(15)、`tests/shred.rs`(16) 全綠；coverage（門檻 80）install 80.02%、mkfifo 93.31%、mknod 91.18%、mktemp 82.09%、dircolors 91.73%、chcon 85.51%、shred 86.82%。全量迴歸 guest test PASS=92 FAIL=0。
 備註：`cargo test --test vdir|ls_extra|ls_coverage` 不產生自己的 profraw（ls 家族由 `tests/ls.rs`、`tests/dir.rs` 涵蓋，coverage.sh 報 83.15%）。
+
+## E1：env / printenv / pwd / sleep
+
+基準依据（m11455 之後的政策）：man 有描述以 man 為準；man 未指定處以本機參考
+（`/usr/lib/cargo/bin/coreutils/<applet>`）實測對齊；邊界 quirk 全數記錄於此。
+
+### env
+- **不重現 GNU 的 exec 語意**：COMMAND 由 `std::process::Command`（posix_spawn）另開行程執行，
+  而非 `execve` 取代當前行程。理由：本專案測試用 `testutil::run()` 是 in-process 呼叫 `dispatch`，
+  真的 exec 會取代 test binary。差異記錄在案；exit code 傳承（被訊號殺 → 128+sig）。
+  訊號處置在 child 的 `pre_exec` 內套用（`signal()`／`sigprocmask(SIG_BLOCK,…)`）。
+- 同一信號只保留**第一次**出現的 action（實測 `--ignore-signal=INT --default-signal=INT`
+  → 只剩 `INT        (2): IGNORE`；`--ignore-signal=TERM,INT --block-signal=1 --default-signal=15`
+  → `HUP (1): BLOCK`、`INT (2): IGNORE`、`TERM (15): IGNORE`）。
+- `--list-signal-handling` 的清單依信號編號遞升排序、格式 `{:<11}({}): {}`、寫到 stderr。
+- 信號名稱：全數字（1..=64）、可選 `SIG` 前綴、大小寫不拘；`sig9`、`all`、`0` →
+  `env: '<spec>': invalid signal`（rc125）。SIGKILL(9)/SIGSTOP(19) 的 ignore/default →
+  `env: failed to set signal action for signal <N>: Invalid argument`（rc125）；block 允許。
+- exit code 分級：選項類錯誤 125（重複選項、缺值、`-0` 與 command 共存、`-C` 缺 command、
+  invalid signal、chdir 失敗）；`-f` 讀檔失敗 1；command 找不到 127；找到但不可執行（如目錄）126。
+- `env: use -[v]S to pass options in shebang lines` 只附加在（a）clap 式 argument 錯誤（含重複、缺值）
+  與（b）exec ENOENT 之後。
+- 第一個 `NAME=VALUE` 之後，任何「不是 assignment」的 token 一律是 COMMAND（連 `-u` 也算），
+  故 `env -i -v A=1 -u B true` → `executing: -u` ＋ `env: '-u': No such file or directory`（127）。
+- `-v` 印 `executing:` 段（用**原始**命令字串，不是 PATH 解析後的絕對路徑）；
+  `-v -v`（或 `-vv`）额外印 `input args:` 段，即使沒有 command 也印。
+- `chdir` 的驗證排在 `executing:` 段之前（`env -v -i -C /tmp/nope /bin/true` 只印 chdir 錯誤）；
+  措辭 `env: cannot change directory to '<dir>': <reason> (os error <n>)`。
+- **dotenv 文法（man 只寫「read and set variables from a ".env"-style configuration file」）**
+  採自訂乾淨文法：略過空白行與 `#` 註解、以第一個 `=` 切分、兩側 trim、去掉成對引號
+  （`"q w"`→`q w`、`"a"b`→`ab`、找不到成對結尾則保留字面引號）、不做 `$` 展開、
+  沒有 `=` 的行略過。本機參考用 dotenvy 的怪癖**不重現**：無 `=` 的行會與下一「以 `=` 開頭」的行
+  合併（`M` + `=nomatch` → `M=nomatch`）、末行無 `=` 會報
+  `env: <file>: 8:1 expecting "[Some('='), Some(':')]" but found EOF.`。
+  檔讀不到 → `env: <path>: <reason> (os error <n>)`、rc1。
+- 檔內設定一律先於任何 unset 套用（呼應 man 的 "prior to any unset and/or set"）。
+- PATH 查找用「修改後」的環境；PATH 未設或空 → 內建預設 `/bin:/usr/bin`
+  （佐證：guest 內 `env -i echo` 仍找到 echo）。
+- `env --help` 與參考 byte-identical（28 行）；首行 `Set each NAME to VALUE in the environment and run COMMAND`
+  **沒有句號**。
+
+### pwd
+- 預設為 physical（`-P` 語意）；`-L` 僅在 `PWD` 為絕對路徑且其 dev/ino 與實際 cwd 相符時才採用，
+  否則退回 physical（佐證 `PWD=/bogus pwd -L` → 印 physical）。後出現的 `-L`/`-P` 贏。
+- 非選項 operand → rc0 且 `pwd: ignoring non-option arguments`。
+- 未知選項是 clap 結構、rc **1**（不同於 printenv 的 rc2）。
+
+### sleep
+- 尾綴大小寫敏感：只接受結尾 `s`/`m`/`h`/`d`（`1M`、`1S`、`1D`、`1m30` 皆 invalid）；
+  倍率 1/60/3600/86400；多個 operand 求和。
+- **已知偏差**：不接受 hex float（參考依 C `strtod` 接受 `sleep 0x10` = 16 秒）。
+- `-1` 不是「invalid time interval」而是 clap 的 `error: unexpected argument '-1' found`（rc1）；
+  真正的負數 interval 要寫 `sleep -- -1`。
+
+### printenv
+- 無 operand → 依 environ 原始順序印 `NAME=VALUE`（不排序）；有 operand → 印存在者，
+  缺任一 → rc1 且 stderr 空；`printenv ""` → rc1 無輸出。
+- 未知選項 rc **2**。
+
+### clap 措辭的統一決定
+- 重複選項錯誤統一由 `crate::pathname::clap_dup(long, metavar, code, stderr)` 產生
+  （`error: the argument '--<long>[ <metavar>]' cannot be used multiple times` ＋ 空行 ＋
+  `For more information, try '--help'.`；無 tip、無 Usage）；code 由呼叫端給
+  （pwd 1、printenv 2、env 125）。
+- **已知外觀偏差**：參考（clap）對某些短旗標的顯示會吃掉 dash —— `sleep -0x1` 報 `'0'`、
+  `env -0x1` 報 `'-x'`；我方一律報 `'-<第一個字元>'`。
+
+### 本叢集 guest 結果
+`tests/pwd.rs`(10)、`tests/sleep.rs`(10)、`tests/printenv.rs`(12)、`tests/env.rs`(19) 全綠；
+coverage（門檻 80）pwd 96.28%、sleep 99.39%、printenv 97.26%、env 87.03%。
+測試內把 multi-call binary 以 **symlink** 提供成 `<dir>/<name>`（argv[0] basename 分派照樣成立）；
+用 `fs::copy` 會把 instrumented binary 塞爆 guest 的 tmpfs（`No space left on device`）。

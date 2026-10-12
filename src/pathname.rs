@@ -281,6 +281,30 @@ pub fn clap_value_required(long: &str, metavar: &str, stderr: crate::Out) {
     writeln!(stderr, "For more information, try '--help'.").ok();
 }
 
+/// clap 風格「選項重複」錯誤（實測：`pwd -L -L`、`printenv -0 -0`、`env -i -i`）。
+/// 措辭 `'--<long>[ <metavar>]'`，只有 error 行 + 空行 + `For more information, try '--help'.`
+/// （沒有 tip、沒有 Usage 段）。呼叫端決定 exit code（pwd 1、printenv 2、env 125）。
+pub fn clap_dup(long: &str, metavar: &str, code: i32, stderr: crate::Out) -> i32 {
+    if metavar.is_empty() {
+        writeln!(
+            stderr,
+            "error: the argument '--{}' cannot be used multiple times",
+            long
+        )
+        .ok();
+    } else {
+        writeln!(
+            stderr,
+            "error: the argument '--{} <{}>' cannot be used multiple times",
+            long, metavar
+        )
+        .ok();
+    }
+    writeln!(stderr).ok();
+    writeln!(stderr, "For more information, try '--help'.").ok();
+    code
+}
+
 /// clap `infer_long_args` 語意：長選項可用「唯一前綴」指定。
 /// 實測（參考 binary）：`mktemp --q` = `--quiet`、`mktemp --tmpdi` = `--tmpdir`、
 /// `shred --verb` = `--verbose`、`mknod --hel` = `--help`；

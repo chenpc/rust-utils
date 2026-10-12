@@ -171,16 +171,16 @@
 
 | # | applet | 狀態 | 備註 |
 |---|---|---|---|
-| 86 | `env` | ☐ | |
-| 87 | `printenv` | ☐ | |
-| 88 | `pwd` | ☐ | shell builtin 與外部版行為不同 |
+| 86 | `env` | ☑ | guest test PASS、coverage 87.03%（COMMAND 用 spawn 而非 exec，見 assumptions） |
+| 87 | `printenv` | ☑ | guest test PASS、coverage 97.26% |
+| 88 | `pwd` | ☑ | guest test PASS、coverage 96.28%；shell builtin 與外部版行為不同 |
 | 89 | `nohup` | ☐ | |
 | 90 | `nice` | ☐ | 需要 syscall/特權 |
 | 91 | `stdbuf` | ☐ | 依賴 `LD_PRELOAD`（`libstdbuf.so`），不是單純 applet |
 | 92 | `stty` | ☐ | termios |
 | 93 | `tty` | ☐ | |
 | 94 | `timeout` | ☐ | signal 處理 |
-| 95 | `sleep` | ☐ | |
+| 95 | `sleep` | ☑ | guest test PASS、coverage 99.39% |
 | 96 | `runcon` | ☐ | 需要 SELinux |
 | 97 | `chroot` | ☐ | 需要特權 |
 | 98 | `groups` | ☐ | |
@@ -227,4 +227,4 @@
 
 - `[` 與 `test` 是同一實作；`ls`/`dir`/`vdir` 共用；`hashsum` 與 B 群其餘是同一實作加不同演算法。
 - `sha3sum`、`shake128sum`、`shake256sum`、`relpath` 是 GNU 較新的 applet。
-- `chcon`/`runcon` 需要 SELinux；`chroot`/`mknod`/`mkfifo`/`nice` 需要特權或 raw syscall —— 這幾個剛好可當「非 root 能否實作」的測試點。
+- `chroot`/`nice` 需要特權或 raw syscall；`mknod`/`mkfifo` 在 guest（root）已直接實測；`chcon` 無 SELinux policy 但 tmpfs 可存 `security.selinux` xattr，故標 label 路徑可測（`runcon` 待測）。
