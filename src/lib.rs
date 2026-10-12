@@ -11,6 +11,7 @@ pub mod basen;
 pub mod hashsum;
 pub mod chown_common;
 pub mod pathname;
+pub mod passwd;
 
 pub mod sys;
 pub mod regex;
@@ -58,13 +59,17 @@ pub fn lookup(name: &str) -> Option<AppletFn> {
         "false" => Some(applets::r#false::run),
         "fmt" => Some(applets::fmt::run),
         "fold" => Some(applets::fold::run),
+        "groups" => Some(applets::groups::run),
         "hashsum" => Some(applets::hashsum::run),
         "head" => Some(applets::head::run),
+        "hostid" => Some(applets::hostid::run),
+        "id" => Some(applets::id::run),
         "init" => Some(applets::init::run),
         "install" => Some(applets::install::run),
         "join" => Some(applets::join::run),
         "link" => Some(applets::link::run),
         "ln" => Some(applets::ln::run),
+        "logname" => Some(applets::logname::run),
         "ls" => Some(applets::ls::run_ls),
         "md5sum" => Some(applets::md5sum::run),
         "mkdir" => Some(applets::mkdir::run),
@@ -122,6 +127,7 @@ pub fn lookup(name: &str) -> Option<AppletFn> {
         "unlink" => Some(applets::unlink::run),
         "vdir" => Some(applets::ls::run_vdir),
         "wc" => Some(applets::wc::run),
+        "whoami" => Some(applets::whoami::run),
         "yes" => Some(applets::yes::run),
         _ => None,
     }

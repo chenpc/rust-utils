@@ -329,3 +329,88 @@ pub fn lseek_pos(fd: i32, off: i64, whence: i32) -> Option<u64> {
         Some(r as u64)
     }
 }
+
+// ---------------------------------------------------------------------------
+// id / whoami / groups / logname / hostid 使用的 libc FFI
+// ---------------------------------------------------------------------------
+
+extern "C" {
+    #[link_name = "geteuid"]
+    fn c_geteuid() -> u32;
+    #[link_name = "getuid"]
+    fn c_getuid() -> u32;
+    #[link_name = "getgid"]
+    fn c_getgid() -> u32;
+    #[link_name = "getegid"]
+    fn c_getegid() -> u32;
+    #[link_name = "getgroups"]
+    fn c_getgroups(size: i32, list: *mut u32) -> i32;
+    #[link_name = "getlogin"]
+    fn c_getlogin() -> *const i8;
+    #[link_name = "gethostid"]
+    fn c_gethostid() -> i32;
+}
+
+// 呼叫端一律用這些安全包裝（extern 本身是 unsafe）。
+pub fn getuid() -> u32 {
+    unsafe { c_getuid() }
+}
+
+pub fn geteuid() -> u32 {
+    unsafe { c_geteuid() }
+}
+
+pub fn getgid() -> u32 {
+    unsafe { c_getgid() }
+}
+
+pub fn getegid() -> u32 {
+    unsafe { c_getegid() }
+}
+
+pub fn gethostid_i32() -> i32 {
+    unsafe { c_gethostid() }
+}
+
+/// 目前程序的補充群組清單（getgroups(2)）；失敗回空。
+pub fn process_groups() -> Vec<u32> {
+    unsafe {
+        let n = c_getgroups(0, std::ptr::null_mut());
+        if n <= 0 {
+            return Vec::new();
+        }
+        let n = (n as usize).min(4096);
+        let mut buf = vec![0u32; n];
+        let m = c_getgroups(n as i32, buf.as_mut_ptr());
+        if m < 0 {
+            Vec::new()
+        } else {
+            buf.truncate(m as usize);
+            buf
+        }
+    }
+}
+
+/// getlogin(3)；無 login name 回 None。
+pub fn login_name() -> Option<String> {
+    unsafe {
+        let p = c_getlogin();
+        if p.is_null() {
+            return None;
+        }
+        let mut v: Vec<u8> = Vec::new();
+        let mut i = 0usize;
+        loop {
+            let c = *(p.add(i));
+            if c == 0 {
+                break;
+            }
+            v.push(c as u8);
+            i += 1;
+            if i > 4096 {
+                break;
+            }
+        }
+        String::from_utf8(v).ok()
+    }
+}

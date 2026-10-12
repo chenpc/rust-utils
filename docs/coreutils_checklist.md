@@ -183,13 +183,13 @@
 | 95 | `sleep` | ☑ | guest test PASS、coverage 99.39% |
 | 96 | `runcon` | ☐ | 需要 SELinux |
 | 97 | `chroot` | ☐ | 需要特權 |
-| 98 | `groups` | ☐ | |
-| 99 | `id` | ☐ | |
+| 98 | `groups` | ☑ | guest test PASS、coverage 97.04% |
+| 99 | `id` | ☑ | guest test PASS、coverage 91.21%；自行解析 /etc/passwd＋/etc/group（不用 NSS） |
 | 100 | `users` | ☐ | |
 | 101 | `who` | ☐ | |
-| 102 | `whoami` | ☐ | |
-| 103 | `logname` | ☐ | |
-| 104 | `hostid` | ☐ | |
+| 102 | `whoami` | ☑ | guest test PASS、coverage 97.59% |
+| 103 | `logname` | ☑ | guest test PASS、coverage 83.52%；getlogin 退回 uid→passwd |
+| 104 | `hostid` | ☑ | guest test PASS、coverage 86.84% |
 | 105 | `arch` | ☐ | |
 | 106 | `uname` | ☐ | |
 | 107 | `nproc` | ☐ | |

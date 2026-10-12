@@ -311,3 +311,60 @@
 coverage（門檻 80）pwd 96.28%、sleep 99.39%、printenv 97.26%、env 87.03%。
 測試內把 multi-call binary 以 **symlink** 提供成 `<dir>/<name>`（argv[0] basename 分派照樣成立）；
 用 `fs::copy` 會把 instrumented binary 塞爆 guest 的 tmpfs（`No space left on device`）。
+
+## E2 叢集：id / whoami / groups / logname / hostid（使用者與群組資訊）
+
+### 名稱解析不走 NSS（重要實作決定）
+本專案的 binary 以 `-C target-feature=+crt-static` 靜態連結；靜態 glibc 的
+`getpwnam`/`getgrgid` 需要 dlopen `libnss_files.so.2`，在 static+initramus 環境不可靠。
+因此 `src/passwd.rs` 自行解析 `/etc/passwd` 與 `/etc/group`。
+佐證：把本機參考放進掛了自訂 `/etc/passwd`＋`/etc/group` 的沙箱，它即依該兩檔解析
+（`id t2` → `uid=1001(t2) gid=200(grpB) groups=200(grpB),100(grpA)`）。
+
+### 群組清單不去重（實測兩邊一致）
+`/etc/group` 有多個 gid 同名時，`id -Gn`/`groups` 照檔案順序印出重複名稱
+（實測 `id -Gn` → `g1000 g65534 g65534 g65534 g65534 g65534 g65534 g65534 g65534`）；
+指定使用者時 gid 一律排第一，其後依 `/etc/group` 檔案順序、且略與 gid 重複者。
+
+### 名稱解析失敗的行為（無 /etc/passwd 時，guest 即此情境）
+- 預設格式：印 `<id>(<id>)`，並每筆失敗印一行 `id: cannot find name for user ID <n>` /
+  `id: cannot find name for group ID <n>`；**rc 仍為 0**。
+- `-n` 模式：印數字且 **rc 1**（man：「If any of the ID numbers cannot be mapped into
+  names, the number will be displayed as usual」）。
+- `-p`：印數字、rc 0、**不印 warning**（且名稱找不到時沒有 `login` 列）。
+- `-P` 找不到條目 → `id: No such id: <uid>`（無 operand）或 `id: '<op>': no such user`。
+
+### 指定 USER 時的預設格式（man 優先於本機參考）
+`docs/man/id.1.gz` 尾部：「If a user (login name or user ID) is specified, the user and
+group IDs of that user are displayed. In this case, the real and effective IDs are
+assumed to be the same.」→ 我方對指定 USER 只印 `uid=/gid=/groups=`（groups 取自該使用者
+在 `/etc/group` 的成員關係）。本機參考在同樣輸入下會混入**目前程序**的 `euid=/egid=`
+與補充群組（例 `id root` → `uid=0(root) gid=0(root) euid=1000(chenpc) egid=1000(chenpc)
+groups=<目前程序群組>`），與 man 描述不符 → 記錄為已知分歧。
+
+### `-A` 與 `-a`
+- `-a, --ignore`：兼容性 no-op（man：「ignore, for compatibility with other versions」）。
+- `-A`：man 寫「Display the process audit user ID … which requires privilege (not
+  available on Linux)」→ 我方完全無輸出（rc 0），且**連不存在的 USER 也不報錯**（參考實測相同）。
+
+### 照抄的參考怪癖
+- `-P` 給多個 operand 時只處理第一個。
+- `-p` 給指定使用者時輸出三列：`uid\t<name>`、`groups\t`（值空）、第三列才是群組清單。
+- operand 的引號包裝：operand 內含 `'` 時改用雙引號（`id a'b` → `id: "a'b": no such user`），
+  否則單引號（空 operand → `id: '': no such user`）。
+- whoami/logname 無 positional → clap 錯誤**沒有 tip 行**（`error:` / 空 / `Usage: whoami` / 空 /
+  `For more information, try '--help'.`）；有 positional 的 id/groups 才有 tip。
+- `id --bogus` 之類的 fuzzy tip（參考會給 `--groups`）不重現，一律 `  tip: to pass ...`。
+
+### logname / whoami 的取名順序
+- `whoami`：`geteuid()` → `/etc/passwd`（不受 `LOGNAME`/`USER` 環境影響，實測兩邊一致）。
+- `logname`：`getlogin(3)` 優先，空則退回 `uid → /etc/passwd`；guest 無 utmp → 走退回路徑
+  （沙箱實測：掛自訂 passwd 即成功，無 db 則 `logname: no login name`、rc 1）。
+- `groups`：無 operand 時**沒有** ` : ` 前綴；有 operand 時標籤是 operand 原文（`groups 0` → `0 : root`）。
+- `hostid`：印 `gethostid()` 的 8 位小寫十六進位；man 未載任何寫入模式（無 GNU 的 `-a`）。
+
+### 本叢集 guest 結果
+`tests/id.rs`(12)、`tests/groups.rs`(9)、`tests/whoami.rs`(6)、`tests/logname.rs`(6)、
+`tests/hostid.rs`(4) 全綠；coverage（門檻 80）id 91.21%、groups 97.04%、whoami 97.59%、
+logname 83.52%、hostid 86.84%。guest 內 uid/gid=0 且 `getgroups` 只回 `[0]`；
+guest 的 `/etc` 不存在（tmpfs、init 未建）→ 測試需 `create_dir_all("/etc")` 才能自建 db。
