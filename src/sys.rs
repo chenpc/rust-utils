@@ -414,3 +414,104 @@ pub fn login_name() -> Option<String> {
         String::from_utf8(v).ok()
     }
 }
+
+#[repr(C)]
+pub struct UtsName {
+    pub sysname: [u8; 65],
+    pub nodename: [u8; 65],
+    pub release: [u8; 65],
+    pub version: [u8; 65],
+    pub machine: [u8; 65],
+    pub domainname: [u8; 65],
+}
+
+extern "C" {
+    #[link_name = "uname"]
+    fn c_uname(buf: *mut UtsName) -> i32;
+    #[link_name = "sched_getaffinity"]
+    fn c_sched_getaffinity(pid: i32, cpusetsize: usize, mask: *mut u64) -> i32;
+}
+
+fn cstr_field(raw: &[u8]) -> String {
+    let end = raw.iter().position(|b| *b == 0).unwrap_or(raw.len());
+    String::from_utf8_lossy(&raw[..end]).into_owned()
+}
+
+pub fn utsname() -> Option<UtsName> {
+    let mut buf = unsafe { std::mem::zeroed::<UtsName>() };
+    let rc = unsafe { c_uname(&mut buf) };
+    if rc == 0 {
+        Some(buf)
+    } else {
+        None
+    }
+}
+
+pub fn field_str(f: &[u8]) -> String {
+    cstr_field(f)
+}
+
+pub fn machine_name() -> Option<String> {
+    utsname().map(|u| cstr_field(&u.machine))
+}
+
+/// Number of CPUs this process is allowed to run on (`sched_getaffinity`).
+pub fn affinity_count() -> Option<usize> {
+    const WORDS: usize = 64;
+    let mut mask = [0u64; WORDS];
+    let rc = unsafe { c_sched_getaffinity(0, WORDS * 8, mask.as_mut_ptr()) };
+    if rc <= 0 {
+        return None;
+    }
+    Some(mask.iter().map(|w| w.count_ones() as usize).sum())
+}
+
+/// Number of CPUs the kernel reports as present (/proc/stat `cpuN` lines).
+pub fn present_cpu_count() -> Option<usize> {
+    let text = match std::fs::read_to_string("/proc/stat") {
+        Ok(t) => t,
+        Err(_) => return None,
+    };
+    let mut n = 0usize;
+    for line in text.lines() {
+        let rest = match line.strip_prefix("cpu") {
+            Some(r) => r,
+            None => continue,
+        };
+        if rest.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+            n += 1;
+        } else {
+            break;
+        }
+    }
+    if n > 0 {
+        Some(n)
+    } else {
+        None
+    }
+}
+
+extern "C" {
+    #[link_name = "time"]
+    pub fn c_time(t: *const i64) -> i64;
+    #[link_name = "ttyname"]
+    pub fn c_ttyname(fd: i32) -> *const i8;
+}
+
+pub fn now_epoch() -> i64 {
+    unsafe { c_time(std::ptr::null()) }
+}
+
+/// Break an epoch second into local calendar fields (year, month 1-12, day, hour, minute).
+pub fn local_time(secs: i64) -> Option<(i32, i32, i32, i32, i32)> {
+    let tm = local_tm(secs)?;
+    Some((tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min))
+}
+
+pub fn tty_name() -> Option<String> {
+    let p = unsafe { c_ttyname(0) };
+    if p.is_null() {
+        return None;
+    }
+    Some(unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
+}

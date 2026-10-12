@@ -41,7 +41,7 @@
 |---|---|---|
 | `b3sum` | ☑ 100.00 | BLAKE3 的 man page / 文件 |
 | `hashsum` | ☑ 100.00 | |
-| `relpath` | ☐ | |
+| `relpath` | ☑ | 91.81%（本機參考無此程式；採 GNU coreutils 9 語意） |
 | `sha3-224sum` | ☑ 100.00 | |
 | `sha3-256sum` | ☑ 100.00 | |
 | `sha3-384sum` | ☑ 100.00 | |
@@ -185,14 +185,14 @@
 | 97 | `chroot` | ☐ | 需要特權 |
 | 98 | `groups` | ☑ | guest test PASS、coverage 97.04% |
 | 99 | `id` | ☑ | guest test PASS、coverage 91.21%；自行解析 /etc/passwd＋/etc/group（不用 NSS） |
-| 100 | `users` | ☐ | |
-| 101 | `who` | ☐ | |
+| 100 | `users` | ☑ | 82.96% |
+| 101 | `who` | ☑ | 89.48% |
 | 102 | `whoami` | ☑ | guest test PASS、coverage 97.59% |
 | 103 | `logname` | ☑ | guest test PASS、coverage 83.52%；getlogin 退回 uid→passwd |
 | 104 | `hostid` | ☑ | guest test PASS、coverage 86.84% |
-| 105 | `arch` | ☐ | |
-| 106 | `uname` | ☐ | |
-| 107 | `nproc` | ☐ | |
+| 105 | `arch` | ☑ | 84.44% |
+| 106 | `uname` | ☑ | 80.68% |
+| 107 | `nproc` | ☑ | 84.54% |
 | 108 | `date` | ☐ | 解析 + 輸出格式 |
 | 109 | `factor` | ☐ | |
 | 110 | `pr` | ☐ | |

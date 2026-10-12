@@ -612,3 +612,43 @@ pub fn resolve_one(name: &str, o: &Canon) -> Result<String, String> {
     }
     Ok(abs)
 }
+
+/// clap `infer_long_args` 細部語意：
+/// `Ok(long)` = 精確或唯一前綴；`Err(Some(cand))` = 前綴 ambiguous（clap 改用
+/// `tip: a similar argument exists: '--<cand>'`）；`Err(None)` = 完全不符。
+pub fn resolve_long<'a>(name: &str, longs: &'a [&'a str]) -> Result<&'a str, Option<&'a str>> {
+    if name.is_empty() {
+        return Err(None);
+    }
+    for l in longs {
+        if *l == name {
+            return Ok(l);
+        }
+    }
+    let candidates: Vec<&'a str> = longs.iter().filter(|l| l.starts_with(name)).copied().collect();
+    match candidates.len() {
+        0 => Err(None),
+        1 => Ok(candidates[0]),
+        _ => Err(Some(candidates[0])),
+    }
+}
+
+/// clap 對「不需要值的旗標卻給了值」的措辭。
+pub fn clap_unexpected_value(
+    long: &str,
+    value: &str,
+    usage: &str,
+    stderr: crate::Out,
+) -> i32 {
+    writeln!(
+        stderr,
+        "error: unexpected value '{}' for '--{}' found; no more were expected",
+        value, long
+    )
+    .ok();
+    writeln!(stderr).ok();
+    writeln!(stderr, "Usage: {}", usage).ok();
+    writeln!(stderr).ok();
+    writeln!(stderr, "For more information, try '--help'.").ok();
+    1
+}

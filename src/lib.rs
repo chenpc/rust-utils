@@ -14,6 +14,7 @@ pub mod pathname;
 pub mod passwd;
 
 pub mod sys;
+pub mod utmp;
 pub mod regex;
 pub mod testutil;
 
@@ -30,6 +31,7 @@ pub type AppletFn = fn(args: &[String], stdin: In, stdout: Out, stderr: Out) -> 
 pub fn lookup(name: &str) -> Option<AppletFn> {
     match name {
         "[" => Some(applets::test::run_bracket),
+        "arch" => Some(applets::arch::run),
         "b2sum" => Some(applets::b2sum::run),
         "b3sum" => Some(applets::b3sum::run),
         "base32" => Some(applets::base32::run),
@@ -78,6 +80,7 @@ pub fn lookup(name: &str) -> Option<AppletFn> {
         "mktemp" => Some(applets::mktemp::run),
         "mv" => Some(applets::mv::run),
         "nl" => Some(applets::nl::run),
+        "nproc" => Some(applets::nproc::run),
         "numfmt" => Some(applets::numfmt::run),
         "od" => Some(applets::od::run),
         "paste" => Some(applets::paste::run),
@@ -122,11 +125,14 @@ pub fn lookup(name: &str) -> Option<AppletFn> {
         "true" => Some(applets::r#true::run),
         "truncate" => Some(applets::truncate::run),
         "tsort" => Some(applets::tsort::run),
+        "uname" => Some(applets::uname::run),
         "unexpand" => Some(applets::unexpand::run),
         "uniq" => Some(applets::uniq::run),
         "unlink" => Some(applets::unlink::run),
+        "users" => Some(applets::users::run),
         "vdir" => Some(applets::ls::run_vdir),
         "wc" => Some(applets::wc::run),
+        "who" => Some(applets::who::run),
         "whoami" => Some(applets::whoami::run),
         "yes" => Some(applets::yes::run),
         _ => None,

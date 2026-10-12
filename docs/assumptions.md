@@ -368,3 +368,66 @@ groups=<目前程序群組>`），與 man 描述不符 → 記錄為已知分歧
 `tests/hostid.rs`(4) 全綠；coverage（門檻 80）id 91.21%、groups 97.04%、whoami 97.59%、
 logname 83.52%、hostid 86.84%。guest 內 uid/gid=0 且 `getgroups` 只回 `[0]`；
 guest 的 `/etc` 不存在（tmpfs、init 未建）→ 測試需 `create_dir_all("/etc")` 才能自建 db。
+
+## E3 叢集：arch / uname / nproc / users / who
+
+### arch
+- 輸出直接取自 `uname(2)` 的 `machine` 欄（`src/sys.rs: machine_name()`），不讀 `/proc`、不猜架構。
+- arch **沒有 positional 參數**，所以未知引數的 clap 錯誤不附 tip 行：
+  `error: unexpected argument 'x' found` + 空行 + `Usage: arch` + 空行 + `For more information, try '--help'.`（rc1）。
+  佐證：本機參考 `arch x`、`arch --bogus`、`arch -- --bogus` 皆無 tip。
+- `--` 是 end-of-options（不是 operand）：`arch --` → rc0 印 `x86_64`（參考實測）。
+- 短旗標簇：第一個未知字元即錯誤（`arch -xh` → `error: unexpected argument '-x' found`），
+  但 `arch -Vx`/`arch -hx` 會在遇到 `V`/`h` 時直接輸出並 rc0（參考實測）。
+
+### uname
+- 欄位全部來自 `uname(2)`（`src/sys.rs: utsname()`）；`-o/--operating-system` 硬編碼 `GNU/Linux`
+  （man 與參考皆如此寫法，不偵測 libc 類型）。
+- man 未寫「無選項時的預設輸出」→ 採參考行為：只印 sysname（等同 `-s`）。
+- `-a` 的順序固定為 sysname、nodename、release、version、machine、`GNU/Linux`；
+  同時指定多個選項時一律照這個 canonical order 輸出（不是命令行順序）。
+- 重複選項錯誤用長名稱含 `--`（`error: the argument '--all' cannot be used multiple times`）。
+- `--` 之後的 token 一律是 positional（uname 無 positional → unexpected）。
+
+### nproc
+- base 數值：預設用 `sched_getaffinity` 的 CPU 數（「available to the current process」），
+  呼叫失敗才退回數 `/proc/stat` 的 `cpuN` 行（`src/sys.rs: present_cpu_count()`）；
+  `--all` 反過來優先使用系統層級的 `present_cpu_count()`。
+- 環境變數語意（man 只說「determine the minimum and maximum returned value」）：
+  `OMP_NUM_THREADS` **取代** base（>0 且可解析才算設定，`--all` 時不生效）；
+  `OMP_THREAD_LIMIT` 在 `--ignore` 之後當上限；結果最低 1。
+- 錯誤結尾只有一空行 + `For more information, try '--help'.`，**沒有** Usage 段也沒有 `Try '...'` 行（參考實測）。
+
+### users / who（utmp 解析）
+- 自行解析 utmp（`src/utmp.rs`）而非 libc `getutent`：`RECORD_SIZE = 384`，
+  欄位位移依 glibc `struct utmp`：ut_type@0、ut_pid@4、ut_line@8(32)、ut_id@40(4)、
+  ut_user@44(32)、ut_host@76(256)、`__exit_status`@332（`e_term`@332、`e_termination`@334）、
+  ut_session@336、ut_tv.tv_sec@340、tv_usec@344、ut_addr_v6@348。
+  who 的 EXIT 欄印成 `term=<e_term> exit=<e_termination>`。
+- 預設檔案 `/var/run/utmp`；檔案不存在 → rc0 且無輸出（man 未定義，採參考行為）。
+- 時間欄格式 `YYYY-MM-DD HH:MM`，用 `localtime`（man 未寫明格式細節）。
+- who 的欄位寬度與 heading 採**固定字串表**（`fn heading()`），依本機參考實測逐字對齊：
+  `-a` → `NAME       LINE         TIME       IDLE          PID COMMENT  EXIT`（NAME 寬 10）；
+  `-d` → 同 `-a` 但 NAME 寬 **8**；`-u/-l/-r` → `NAME     LINE         TIME       IDLE          PID COMMENT`；
+  `-p/-b/-t` → `NAME     LINE         TIME              PID COMMENT`（保留 IDLE 欄寬但**不印標籤**）；
+  `-T` → `NAME       LINE         TIME       COMMENT`；預設 → `NAME     LINE         TIME       COMMENT`。
+  優先序：`-a` > `-d` > `-u/-l/-r` > `-p/-b/-t` > `-T` > 短格式。
+- message status 欄（`-T`/`-a`）：GNU 用 terminal ioctl 判斷；本實作改用 stat 推定 —
+  `/dev/<ut_line>` 不存在 → `?`，mode & 0o222 ≠ 0 → `+`，否則 `-`；
+  該字元放在 NAME 欄最後一個字元位置（因此 `-a`/`-T` 的 NAME 寬是 10）。這是記錄在案的實作替換。
+- `-q`：先印 user 名字（每 14 個一列、空白分隔），再印 `# users=N`；
+  0 個 user 時仍先印一個空行（參考實測）。
+- DEAD_PROCESS 記錄：IDLE 欄印 `gone`，並輸出 EXIT 欄。
+- `users` 只取 USER_PROCESS 的 user 名稱、排序但保留重複（man：「like who -q 但不印時間」）。
+
+### 已知分歧（不再追本機參考的 clap 細部）
+- 長選項前綴推論（clap `infer_long_args`）與「旗標收到 inline 值」的
+  `error: unexpected value '1' for '--help' found; no more were expected` 只有 **arch** 完整實作
+  （共用 helper：`src/pathname.rs:619 resolve_long()`、`:637 clap_unexpected_value()`）；
+  uname/users/who/nproc 目前只認精確長選項名，`--heading=1` 這類 inline 值會被安靜接受。
+  兩條措辭皆有參考佐證（`arch --hel`、`arch --help=1`、`who --heading=1`、`nproc --all=1`、
+  `uname --ker` → `tip: a similar argument exists: '--kernel-name'`），列為後續可補的 CLI 層工作。
+
+### 本叢集 guest 結果
+`tests/arch.rs`(5)、`tests/uname.rs`(11)、`tests/nproc.rs`(9)、`tests/users.rs`(8)、`tests/who.rs`(11) 全綠；
+coverage（門檻 80）arch 84.44%、uname 80.68%、nproc 84.54%、users 82.96%、who 89.48%。

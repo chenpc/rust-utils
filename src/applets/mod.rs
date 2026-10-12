@@ -1,5 +1,6 @@
 //! applet 模組：每個 applet 一個檔案（src/applets/<name>.rs），行為依據是 man page。
 
+pub mod arch;
 pub mod b2sum;
 pub mod b3sum;
 pub mod base32;
@@ -47,6 +48,7 @@ pub mod mknod;
 pub mod mktemp;
 pub mod mv;
 pub mod nl;
+pub mod nproc;
 pub mod numfmt;
 pub mod od;
 pub mod paste;
@@ -91,9 +93,12 @@ pub mod tr;
 #[path = "true.rs"] pub mod r#true;
 pub mod truncate;
 pub mod tsort;
+pub mod uname;
 pub mod unexpand;
 pub mod uniq;
 pub mod unlink;
+pub mod users;
 pub mod wc;
+pub mod who;
 pub mod whoami;
 pub mod yes;
