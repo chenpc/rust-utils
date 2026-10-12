@@ -174,15 +174,15 @@
 | 86 | `env` | ☑ | guest test PASS、coverage 87.03%（COMMAND 用 spawn 而非 exec，見 assumptions） |
 | 87 | `printenv` | ☑ | guest test PASS、coverage 97.26% |
 | 88 | `pwd` | ☑ | guest test PASS、coverage 96.28%；shell builtin 與外部版行為不同 |
-| 89 | `nohup` | ☐ | |
-| 90 | `nice` | ☐ | 需要 syscall/特權 |
+| 89 | `nohup` | ☑ | guest test PASS、coverage 83.02% |
+| 90 | `nice` | ☑ | guest test PASS、coverage 83.20% |
 | 91 | `stdbuf` | ☐ | 依賴 `LD_PRELOAD`（`libstdbuf.so`），不是單純 applet |
 | 92 | `stty` | ☐ | termios |
 | 93 | `tty` | ☐ | |
-| 94 | `timeout` | ☐ | signal 處理 |
+| 94 | `timeout` | ☑ | guest test PASS、coverage 84.15% |
 | 95 | `sleep` | ☑ | guest test PASS、coverage 99.39% |
 | 96 | `runcon` | ☐ | 需要 SELinux |
-| 97 | `chroot` | ☐ | 需要特權 |
+| 97 | `chroot` | ☑ | guest test PASS、coverage 81.86%（guest 為 root） |
 | 98 | `groups` | ☑ | guest test PASS、coverage 97.04% |
 | 99 | `id` | ☑ | guest test PASS、coverage 91.21%；自行解析 /etc/passwd＋/etc/group（不用 NSS） |
 | 100 | `users` | ☑ | 82.96% |
@@ -227,4 +227,4 @@
 
 - `[` 與 `test` 是同一實作；`ls`/`dir`/`vdir` 共用；`hashsum` 與 B 群其餘是同一實作加不同演算法。
 - `sha3sum`、`shake128sum`、`shake256sum`、`relpath` 是 GNU 較新的 applet。
-- `chroot`/`nice` 需要特權或 raw syscall；`mknod`/`mkfifo` 在 guest（root）已直接實測；`chcon` 無 SELinux policy 但 tmpfs 可存 `security.selinux` xattr，故標 label 路徑可測（`runcon` 待測）。
+- `chroot`/`nice` 需特權或 raw syscall，guest（root）已直接實測；`mknod`/`mkfifo` 在 guest（root）已直接實測；`chcon` 無 SELinux policy 但 tmpfs 可存 `security.selinux` xattr，故標 label 路徑可測（`runcon` 待測）。

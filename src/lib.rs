@@ -10,6 +10,7 @@ pub mod applets;
 pub mod basen;
 pub mod hashsum;
 pub mod chown_common;
+pub mod exec;
 pub mod pathname;
 pub mod passwd;
 
@@ -43,6 +44,7 @@ pub fn lookup(name: &str) -> Option<AppletFn> {
         "chgrp" => Some(applets::chgrp::run),
         "chmod" => Some(applets::chmod::run),
         "chown" => Some(applets::chown::run),
+        "chroot" => Some(applets::chroot::run),
         "cksum" => Some(applets::cksum::run),
         "comm" => Some(applets::comm::run),
         "cp" => Some(applets::cp::run),
@@ -79,7 +81,9 @@ pub fn lookup(name: &str) -> Option<AppletFn> {
         "mknod" => Some(applets::mknod::run),
         "mktemp" => Some(applets::mktemp::run),
         "mv" => Some(applets::mv::run),
+        "nice" => Some(applets::nice::run),
         "nl" => Some(applets::nl::run),
+        "nohup" => Some(applets::nohup::run),
         "nproc" => Some(applets::nproc::run),
         "numfmt" => Some(applets::numfmt::run),
         "od" => Some(applets::od::run),
@@ -120,6 +124,7 @@ pub fn lookup(name: &str) -> Option<AppletFn> {
         "tail" => Some(applets::tail::run),
         "tee" => Some(applets::tee::run),
         "test" => Some(applets::test::run),
+        "timeout" => Some(applets::timeout::run),
         "touch" => Some(applets::touch::run),
         "tr" => Some(applets::tr::run),
         "true" => Some(applets::r#true::run),

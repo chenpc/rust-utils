@@ -431,3 +431,62 @@ guest 的 `/etc` 不存在（tmpfs、init 未建）→ 測試需 `create_dir_all
 ### 本叢集 guest 結果
 `tests/arch.rs`(5)、`tests/uname.rs`(11)、`tests/nproc.rs`(9)、`tests/users.rs`(8)、`tests/who.rs`(11) 全綠；
 coverage（門檻 80）arch 84.44%、uname 80.68%、nproc 84.54%、users 82.96%、who 89.48%。
+
+## E4 叢集：nohup / nice / timeout / chroot（外部指令執行家族）
+
+基準依据：man 有描述以 man 為準；man 未指定處以本機參考
+（`/usr/lib/cargo/bin/coreutils/<applet>`）實測對齊。
+
+### 四支共用的執行模型
+- 與 E1 的 `env` 相同：**不重現 GNU 的 execve 語意**，改用 `std::process::Command` 另開子行程並
+  傳承 exit code（子行程被訊號殺 → `128 + sig`）。理由同 E1：`testutil::run()` 是 in-process 呼叫
+  `dispatch`，真的 exec 會取代 test binary。
+- 需要特權或訊號動作的步驟都放在 child 的 `pre_exec`（fork 之後、exec 之前）執行。
+- exit code 分級統一採 GNU：選項類錯誤 **125**、指令找不到 **127**、找到但不可執行（如目錄）**126**。
+  本機參考在这四個 applet 的 clap 錯誤分別回 1（nice/timeout）或 2（chroot），列為記錄在案的偏離
+  （GNU `env`/`chroot` 的 info 頁明載 125/126/127）。
+
+### nohup
+- argv[0] 改成 `nohup`（參考保留原 argv[0]）；無 `--` 之前的第一個非選項 token 即 COMMAND，其後全部原樣交給指令。
+- 輸出決策（GNU 描述）：stdout 是 TTY → 附加到 `nohup.out`；`nohup.out` 開不了（例如它是目錄）
+  → 改用 `$HOME/nohup.out`；兩者都失敗 → 保持原輸出並只印 `nohup: ignoring input`。
+  stdin 是 TTY → 重導向 `/dev/null` 並印 `nohup: ignoring input`。guest 內 test binary 的 fd 1/2
+  是序列主控台（TTY），所以 TTY 分支在 guest 可測。
+- 忽略 SIGHUP 只套用在 child（`pre_exec` 內 `signal(SIGHUP, SIG_IGN)`）；父行程不動。
+  `pre_exec` 閉包在 fork 出的行程執行，因此永不計入 coverage（該檔函式 coverage 66.67% 的來源）。
+
+### nice
+- 三種調整寫法：舊式 `-5` / `+5` / `5`（整個 token 全是數字或 `-`）、`-n 5`、`--adjustment=5`；
+  多個調整值加總並 clamp 到 `[-20, 20]`；`-n` 缺值 → `nice: option requires an argument -- 'n'`。
+- 指令搜尋用最終環境的 `PATH`（未設定時 `/bin:/usr/bin`），區分 127（找不到）與 126（不可執行）。
+- 已知分歧：`nice -- -5` 我方把 `--` 之後的純數字仍当成調整值，參考則把 `-5` 当成指令。
+
+### timeout
+- 非 `-f` 時用 `process_group(0)` 讓指令自成一組，逾時訊號用 `kill(-pid)` 送給整個 process group；
+  `-f` 只殺直接子行程（且不另設 process group）。
+- exit code：逾時 124；`-k` 升級成 KILL 後 137；`--preserve-status` → `128 + 訊號`。
+  實測佐證：`-k 0.1 -s STOP 0.2 sleep 30` → 137（TERM 不足以停下 STOP 住的行程）、
+  `-k 0.1 -v 0.2 sleep 30` → 124（TERM 已殺掉 sleep，不會用 KILL）、
+  `-s INT -p -v 0.2 sleep 30` → 130。
+- 訊號解析：名稱（大小寫不拘、可選 `SIG` 前綴）或 1..=64 的數字；`-v` 印
+  `timeout: sending signal <NAME> to command '<原始指令>'`。
+
+### chroot
+- 沒有 COMMAND 時用 `$SHELL`（未設定則 `/bin/sh`）。
+- 父行程**不**解析指令路徑：由 exec 在**新根內**解析（與 GNU 相同），所以失敗措辭是
+  `chroot: failed to run command '<cmd>': No such file or directory`（127）或
+  `... Permission denied`（126）。
+- `--skip-chdir` 只在新根就是 `/` 時允許，否則 `chroot: option --skip-chdir only permitted if NEWROOT is old '/'`。
+- `pre_exec` 順序：`setgroups(groups)`（或 `initgroups(user, uid)`）→ `setgid` → `setuid` → `chroot` → `chdir("/")`；
+  失敗時把 `(步驟, errno)` 共 5 bytes 用 `UnixStream` 回報父行程，父行程再印 GNU 措辭：
+  步驟 1/2 → `chroot: cannot set groups: <reason>`、3 → `cannot set user id`、
+  4 → `cannot chroot to '<root>': <reason>`、5 → `cannot change working directory`（皆 125）。
+  步驟 5 在 guest 不可達（chroot 後 `chdir("/")` 一定成功），該訊息目前無測試。
+- guest 限制：chroot 之後的子行程看不到 `/out`，其 profraw 寫入失敗並在 log 留下
+  `LLVM Profile Error: Failed to write file "/out/..."`（不影響測試結果；該子行程的 coverage 不計入）。
+  新根用 tmpfs 的 `/tmp/e4_root`，裡面的指令是 `/init`（同一份 multi-call binary）的硬連結。
+
+### 本叢集 guest 結果
+`tests/nohup.rs`(14)、`tests/nice.rs`(12)、`tests/timeout.rs`(18)、`tests/chroot.rs`(20) 全綠；
+coverage（門檻 80）nohup 83.02%、nice 83.20%、timeout 84.15%、chroot 81.86%。
+全量迴歸 `./scripts/test_all.sh -j 4` → `PASS=110 FAIL=0`。
