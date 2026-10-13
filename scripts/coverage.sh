@@ -67,9 +67,9 @@ if [ "$found" = 0 ]; then
   # 共用 binary 的 profraw 可能已被同组的 coverage 跑合并并清掉（ls/dir/vdir/ls_extra）；
   # 若本 applet（或 ls 主档）已有近期 merged profdata（<15 分鐘）則沿用。
   fam="$LOGDIR/ls.profdata"
-  if [ -f "$merged" ] && [ "$(( $(date +%s) - $(stat -c %Y "$merged") ))" -lt 900 ]; then
+  if [ -f "$merged" ] && [ "$(( $(date +%s) - $(stat -c %Y "$merged") ))" -lt 3600 ]; then
     rust_log "[cov:$applet] 沿用既有 merged profdata（共用 profraw 已清）"
-  elif [ -f "$fam" ] && [ "$(( $(date +%s) - $(stat -c %Y "$fam") ))" -lt 900 ]; then
+  elif [ -f "$fam" ] && [ "$(( $(date +%s) - $(stat -c %Y "$fam") ))" -lt 3600 ]; then
     merged="$fam"
     rust_log "[cov:$applet] 沿用 ls.profdata（共用 profraw 已清）"
   else

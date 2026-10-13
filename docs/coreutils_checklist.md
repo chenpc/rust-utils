@@ -176,12 +176,12 @@
 | 88 | `pwd` | ☑ | guest test PASS、coverage 96.28%；shell builtin 與外部版行為不同 |
 | 89 | `nohup` | ☑ | guest test PASS、coverage 83.02% |
 | 90 | `nice` | ☑ | guest test PASS、coverage 83.20% |
-| 91 | `stdbuf` | ☐ | 依賴 `LD_PRELOAD`（`libstdbuf.so`），不是單純 applet |
-| 92 | `stty` | ☐ | termios |
-| 93 | `tty` | ☐ | |
+| 91 | `stdbuf` | ☑ | guest test PASS、coverage 92.37%；不依賴 libstdbuf.so，改由 re-exec 自身並注入環境變數（見 assumptions） |
+| 92 | `stty` | ☑ | guest test PASS、coverage 81.76%；termios via ioctl，測試用 -F /dev/ttyS0 |
+| 93 | `tty` | ☑ | guest test PASS、coverage 91.56% |
 | 94 | `timeout` | ☑ | guest test PASS、coverage 84.15% |
 | 95 | `sleep` | ☑ | guest test PASS、coverage 99.39% |
-| 96 | `runcon` | ☐ | 需要 SELinux |
+| 96 | `runcon` | ☑ | guest test PASS、coverage 81.08%；guest 無 SELinux → 驗證 GNU 錯誤路徑，SELinux 成功路徑不可測（記錄於 assumptions） |
 | 97 | `chroot` | ☑ | guest test PASS、coverage 81.86%（guest 為 root） |
 | 98 | `groups` | ☑ | guest test PASS、coverage 97.04% |
 | 99 | `id` | ☑ | guest test PASS、coverage 91.21%；自行解析 /etc/passwd＋/etc/group（不用 NSS） |
@@ -193,10 +193,10 @@
 | 105 | `arch` | ☑ | 84.44% |
 | 106 | `uname` | ☑ | 80.68% |
 | 107 | `nproc` | ☑ | 84.54% |
-| 108 | `date` | ☐ | 解析 + 輸出格式 |
-| 109 | `factor` | ☐ | |
-| 110 | `pr` | ☐ | |
-| 111 | `pinky` | ☐ | |
+| 108 | `date` | ☑ | guest test PASS、coverage 87.42%；TZ 僅支援 UTC/固定偏移（見 assumptions） |
+| 109 | `factor` | ☑ | guest test PASS、coverage 88.81%（Pollard rho + Miller–Rabin） |
+| 110 | `pr` | ☑ | guest test PASS、coverage 82.58% |
+| 111 | `pinky` | ☑ | guest test PASS、coverage 86.21%；自行解析 /etc/passwd＋utmp（不用 NSS） |
 
 ## F. 磁碟／系統（4）
 

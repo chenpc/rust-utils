@@ -161,3 +161,43 @@ fn double_dash_forces_operand_and_dispatch_via_binary() {
     let out = t::run_bin("users", &[f.to_str().unwrap()], "");
     assert_eq!(out.out(), "bob\n");
 }
+
+#[test]
+fn fuzz_invariants() {
+    // 不變量：users FILE 的輸出 = USER_PROCESS(7) 记录的 user 名稱，排序保留重複；
+    // DEAD(8)/其他 utype 一律排除；未知旗標 → rc1（users 家族 clap rc）；檔案不存在 → rc1。
+    let d = fresh("fuzz");
+    let f = d.join("utmp");
+    let names = ["amy", "zoe", "bob", "amy", "cy", "bob", "amy"];
+    let mut st: u64 = 0xFEED_5EED;
+    for iter in 0..30u32 {
+        st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let n = ((st >> 40) % 7 + 1) as usize;
+        let mut recs: Vec<Vec<u8>> = Vec::new();
+        let mut expect: Vec<&str> = Vec::new();
+        for k in 0..n {
+            let name = names[((st >> (k * 3)) % names.len() as u64) as usize];
+            let utype = [7u16, 7, 7, 8, 0, 1][(st >> (k * 2)) as usize % 6];
+            recs.push(rec(
+                utype as i16,
+                100 + k as i32 + iter as i32 * 10,
+                &format!("pts/{k}"),
+                &format!("p{k}"),
+                name,
+                "host",
+                1700000000 + k as i32,
+            ));
+            if utype == 7 {
+                expect.push(name);
+            }
+        }
+        expect.sort();
+        write_utmp(&f, &recs);
+        let r = t::run("users", &[f.to_str().unwrap()], "");
+        assert_eq!(r.code, 0, "iter {iter} {}", r.err());
+        let __o = r.out();
+        let got: Vec<&str> = __o.split_whitespace().collect();
+        assert_eq!(got, expect, "iter {iter} out={:?}", r.out());
+    }
+    assert_eq!(t::run("users", &["--nope"], "").code, 1); // users 家族 clap rc = 1
+}

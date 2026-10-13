@@ -248,3 +248,63 @@ fn run_bin_dispatch() {
     assert_eq!(out.code, 0);
     assert!(out.out().contains("carol"));
 }
+
+#[test]
+fn fuzz_invariants() {
+    // 不變量：who FILE 印全部 USER_PROCESS(7) 记录、排除 DEAD(8)；-d 只印 DEAD；
+    // -q：單行空格分隔 user 名稱（我方 E3 決定）；列數恆 1；旗標組合（-m/-s/-H 以外）不改變列數；rc ∈ {0,1,2}。
+    let mut st: u64 = 0x9E37_7B01;
+    for iter in 0..24u32 {
+        st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let n = ((st >> 40) % 6 + 1) as usize;
+        let mut recs: Vec<Vec<u8>> = Vec::new();
+        let (mut live, mut dead) = (0usize, 0usize);
+        for k in 0..n {
+            let utype = [7u16, 7, 8, 0, 1][(st >> (k * 2)) as usize % 5];
+            if utype == 7 {
+                live += 1;
+            } else if utype == 8 {
+                dead += 1;
+            }
+            recs.push(rec_full(
+                utype as i16,
+                200 + k as i32 + iter as i32 * 10,
+                &format!("pts/{k}"),
+                &format!("p{k}"),
+                &format!("u{}", k % 3),
+                &format!("h{k}"),
+                T + k as i32,
+                0,
+                0,
+            ));
+        }
+        let f = file(&format!("fz{iter}"), &recs);
+        let arg = f.to_str().unwrap();
+        let r = t::run("who", &[arg], "");
+        assert_eq!(r.code, 0, "iter {iter} {}", r.err());
+        assert_eq!(r.out().lines().count(), live, "iter {iter} live={live} out={:?}", r.out());
+        let d = t::run("who", &["-d", arg], "");
+        assert_eq!(d.code, 0);
+        assert_eq!(d.out().lines().count(), dead, "iter {iter} -d dead={dead}");
+        let q = t::run("who", &["-q", arg], "");
+        assert_eq!(q.code, 0);
+        let __q = q.out();
+        let mut name_tokens = 0usize;
+        let mut seen_count = None;
+        for line in __q.lines() {
+            if let Some(rest) = line.strip_prefix("# users=") {
+                seen_count = Some(rest.parse::<usize>().expect("users count"));
+            } else {
+                name_tokens += line.split_whitespace().count();
+            }
+        }
+        assert_eq!(seen_count, Some(live), "iter {iter} -q {:?}", q.out());
+        assert_eq!(name_tokens, live, "iter {iter} -q names {:?}", q.out());
+        for opt in ["-s"] { // 只有 -s（不改列數）可作不變量；-l/-u/-m/-r 是 ut_type 過濾（另測於 heading）
+            let m = t::run("who", &[opt, arg], "");
+            assert_eq!(m.code, 0);
+            assert_eq!(m.out().lines().count(), live, "iter {iter} {opt}");
+        }
+    }
+    assert_eq!(t::run("who", &["--nope-who"], "").code, 1); // who 家族 clap rc = 1（見 assumptions E3）
+}

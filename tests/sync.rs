@@ -128,3 +128,43 @@ fn dash_dash_terminates_options() {
     let r = t::run("sync", &["--", &format!("{dir}/-weird")], "");
     assert_eq!(r.code, 0);
 }
+
+#[test]
+fn fuzz_invariants() {
+    // 不變量：任意存在檔案組合（含重複、含目錄）都 rc 0 且零輸出（man 未定義 sync 的錯誤回報）；
+    // 不存在路徑 → rc 1 + ENOENT 類訊息；clap 錯誤 rc 2。
+    let dir = t::workdir().join(format!("sync_fuzz_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    for i in 0..8u32 {
+        std::fs::write(dir.join(format!("f{i}")), b"data").expect("write");
+    }
+    let mut st: u64 = 0x51CC0CC5;
+    for _ in 0..40u64 {
+        st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let n = (st >> 50) % 4 + 1;
+        let files: Vec<String> = (0..n)
+            .map(|k| {
+                let idx = ((st >> (k * 5)) % 8) as u32;
+                let prefix = ["-d", "--data", ""][((st >> (k * 3)) % 3) as usize];
+                let _ = prefix;
+                format!("{}/f{}", dir.display(), idx)
+            })
+            .collect();
+        let flag = ["-d", ""][(st as usize >> 1) % 2];
+        let mut args: Vec<&str> = Vec::new();
+        if !flag.is_empty() {
+            args.push(flag);
+        }
+        for f in &files {
+            args.push(f.as_str());
+        }
+        let r = t::run("sync", &args, "");
+        assert_eq!(r.code, 0, "{:?} {}", args, r.err());
+        assert_eq!(r.out(), "");
+    }
+    let r = t::run("sync", &["/nonexistent-sync-target"], "");
+    assert_eq!(r.code, 1);
+    assert!(r.err().contains("No such file"), "{}", r.err());
+    assert_eq!(t::run("sync", &["--nope"], "").code, 2);
+}

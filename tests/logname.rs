@@ -83,3 +83,28 @@ fn e2e_binary_dispatch() {
     assert_eq!((r.code, r.out().as_str()), (0, "root\n"));
     clear_db();
 }
+
+#[test]
+fn fuzz_invariants() {
+    // 不變量：logname（成功時）輸出單一 token；rc ∈ {0,1}；旗標組合 rc ∈ {0,1,2}；
+    // rc 2 恆零輸出且 stderr 以 error: 起頭。
+    let base = run(&[]);
+    assert!(base.code == 0 || base.code == 1, "{}", base.err());
+    if base.code == 0 {
+        let name = base.out().trim().to_string();
+        assert!(!name.is_empty() && !name.contains(' '));
+    }
+    let mut st: u64 = 0x10C6_4A7E;
+    for _ in 0..60 {
+        st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let pool = ["--help", "--version", "-h", "-V", "--", "arg", "--hel", "--vers", "-q"];
+        let a1 = pool[((st >> 30) % 9) as usize];
+        let a2 = pool[((st >> 20) % 9) as usize];
+        let r = run(&[a1, a2]);
+        assert!(matches!(r.code, 0 | 1 | 2), "{a1} {a2} -> {}", r.code);
+        if r.code == 2 {
+            assert_eq!(r.out(), "", "{a1} {a2}");
+            assert!(r.err().starts_with("error: "), "{a1} {a2}: {:?}", r.err());
+        }
+    }
+}

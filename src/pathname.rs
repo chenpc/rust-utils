@@ -253,6 +253,16 @@ pub fn invoked_as(applet: &str) -> String {
     }
 }
 
+/// clap 風格「短旗標簇中未知字元」的顯示規則（實測）：
+/// `-sq` → `-q`、`-3x` → `-3`、`-x0` → `-x`；字元 `0` 一律顯示成 `0`（不帶 dash）。
+pub fn clap_unknown_short(token: &str, k: usize) -> String {
+    if token.as_bytes()[k] == b'0' {
+        "0".to_string()
+    } else {
+        format!("-{}", &token[k..=k])
+    }
+}
+
 /// uutils 的 usage hint：`Try '<path>/<applet> --help' for more information.`
 pub fn usage_hint(applet: &str) -> String {
     format!("Try '{} --help' for more information.", invoked_as(applet))
@@ -616,6 +626,9 @@ pub fn resolve_one(name: &str, o: &Canon) -> Result<String, String> {
 /// clap `infer_long_args` 細部語意：
 /// `Ok(long)` = 精確或唯一前綴；`Err(Some(cand))` = 前綴 ambiguous（clap 改用
 /// `tip: a similar argument exists: '--<cand>'`）；`Err(None)` = 完全不符。
+/// 注：clap 對「非前綴但編輯距離很近」的長旗標（如 `--silnt`、`--userr`）也會給 similar tip，
+/// 但其選取規則與 clap 版本/applet 旗標清單相關、實測不一致（`--bog`→給 `--help` 的 tip、
+/// `--bogus` 卻不給）；本專案不重現這條 fuzzy tip，記錄於 docs/assumptions.md。
 pub fn resolve_long<'a>(name: &str, longs: &'a [&'a str]) -> Result<&'a str, Option<&'a str>> {
     if name.is_empty() {
         return Err(None);

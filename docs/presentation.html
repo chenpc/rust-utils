@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>給系統程式容錯空間 — AI Agent × QEMU Sandbox 開發 115 個 coreutils</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #171f2e; --fg: #e8edf6; --dim: #93a1b5;
+    --acc: #4ec9b0; --acc2: #58a6ff; --warn: #e5a14e; --bad: #e57373; --good: #7ee787;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: "Noto Sans TC", "PingFang TC", sans-serif; overflow: hidden; }
+  .deck { height: 100vh; }
+  section.slide { display: none; height: 100vh; padding: 44px 66px 66px; flex-direction: column; gap: 14px; }
+  section.slide.active { display: flex; }
+  h1 { font-size: 42px; line-height: 1.3; }
+  h2 { font-size: 29px; color: var(--acc); border-left: 6px solid var(--acc); padding-left: 14px; }
+  h3 { font-size: 19px; color: var(--acc2); margin-bottom: 8px; }
+  .sub { color: var(--dim); font-size: 17px; }
+  ul { list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 17.5px; }
+  ul li { padding-left: 22px; position: relative; }
+  ul li::before { content: "▸"; color: var(--acc); position: absolute; left: 0; }
+  ul.tight li { font-size: 15.5px; gap: 6px; }
+  code, .mono { font-family: "Fira Code", monospace; background: #101927; padding: 2px 7px; border-radius: 5px; font-size: 0.92em; color: #c9e4ff; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .cols3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+  .card { background: var(--panel); border-radius: 12px; padding: 15px 18px; border: 1px solid #243044; }
+  .kpi { display: flex; gap: 26px; margin: 12px 0; flex-wrap: wrap; }
+  .kpi .k { background: var(--panel); border-radius: 12px; padding: 14px 24px; border: 1px solid #243044; }
+  .kpi .k b { display: block; font-size: 27px; color: var(--acc); }
+  .kpi .k span { color: var(--dim); font-size: 14px; }
+  pre { background: #0b1220; border: 1px solid #223049; border-radius: 10px; padding: 13px 16px; font-size: 14px; overflow: auto; line-height: 1.55; }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  th, td { border: 1px solid #263450; padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #1c2637; color: var(--acc2); }
+  td.ok { color: var(--good); } td.bad { color: var(--bad); }
+  .quote { font-size: 20px; border-left: 4px solid var(--acc2); padding-left: 16px; }
+  .small { font-size: 13.5px; color: var(--dim); }
+  .accent { color: var(--acc); } .bad { color: var(--bad); } .good { color: var(--good); }
+  ol { font-size: 17.5px; line-height: 1.85; padding-left: 26px; }
+  ol li b { color: var(--acc); }
+  .footer { position: fixed; bottom: 0; left: 0; right: 0; height: 28px; background: #0b1018; color: var(--dim); font-size: 13px; display: flex; align-items: center; padding: 0 24px; gap: 18px; }
+  .bar { position: fixed; top: 0; left: 0; height: 4px; background: var(--acc); transition: width .25s; }
+  .center { justify-content: center; }
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div>
+<div class="deck" id="deck">
+
+<!-- 1 -->
+<section class="slide center active">
+  <h1>給系統程式一個<span class="accent">容錯空間</span></h1>
+  <h1 style="font-size:28px;">自建 QEMU Sandbox × AI Agent：115 個 coreutils applet 的大規模自動化開發</h1>
+  <div class="kpi">
+    <div class="k"><b>115</b><span>applet / 單一 multi-call binary / 零依賴</span></div>
+    <div class="k"><b>~63K 行</b><span>src 38.5K ＋ tests 24.6K</span></div>
+    <div class="k"><b>58 小時</b><span>agent 開發，0 次對 host 的破壞</span></div>
+    <div class="k"><b>118/118</b><span>guest test PASS · coverage avg 91%（min 80.02）</span></div>
+  </div>
+  <p class="small">Agent 敢犯錯，系統程式才寫得動 — 沙箱就是那道容錯空間 · rust-dist · 2026-10-13</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2>核心主張：agent 開發＝試錯，系統程式的試錯很貴</h2>
+  <div class="cols">
+    <div class="card">
+      <h3>這 115 支直接動真實世界</h3>
+      <ul class="tight">
+        <li><code>rm/mv/mknod/dd/shred</code>：檔案系統與裝置節點</li>
+        <li><code>chroot/kill/timeout</code>：行程與排程</li>
+        <li><code>date -s</code>：<code>settimeofday(2)</code> 系統時鐘</li>
+        <li><code>stty</code>：terminal 的 termios</li>
+      </ul>
+      <p class="small" style="margin-top:8px">寫錯 syscall、無限迴圈、誤刪、把鐘調到 1970，都是開發過程的正常產物 — 在 host 上試錯，成本是資料、權限、時鐘、終端機。</p>
+    </div>
+    <div class="card">
+      <h3>解法：可丟棄的 QEMU 沙箱（人建的，不是 agent 建的）</h3>
+      <ul class="tight">
+        <li>128 MB RAM、5.7 MB initramfs、開機就绪 <b>~0.9 秒</b>、用完 sysrq power_off</li>
+        <li><b>真實 Linux 核心、真實 syscall、真實 errno、root 權限</b> — 不是 mock</li>
+        <li>沒有 busybox：<code>/init</code> 與 <code>/bin/sh</code> 都是我方 coreutils 的 applet；guest 內的 "cat"/"env" 由 symlink multi-call binary 自建</li>
+        <li>virtio-9p 雙通道：<code>/mnt</code> 唯讀（test binary）、<code>/out</code> 可寫（profraw 證據）</li>
+      </ul>
+    </div>
+  </div>
+  <pre>對 agent 透明：.cargo/config.toml  →  runner = scripts/qemu_runner.sh
+  agent 眼中只是「cargo test」；每個 test binary（靜態連結）都被送進一台新 guest 執行
+  profraw 經 9p 回到 host → llvm-profdata / llvm-cov → logs/&lt;applet&gt;.cov.out（門檻 80%）</pre>
+  <p class="quote">危險的「後果」封在沙箱裡，危險的「行為」照常發生 — 於是每次錯誤的價格＝0.9 秒重開一台。</p>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2>容錯空間實例 ＋ 開發中途加裝的三層護欄</h2>
+  <table>
+    <tr><th>沙箱內做得到、host 做不到</th><th>實例</th></tr>
+    <tr><td class="ok">特權路徑「可測」而不是「要 mock」</td><td><code>date -s</code> 實測 settimeofday 成功路徑（guest 用完即丟）；<code>mknod</code> 真建裝置節點；<code>chroot</code> 到 tmpfs 新根；root 擋不住的 EISDIR 反而是可測性</td></tr>
+    <tr><td class="ok">agent 的真 bug 只燒沙箱</td><td><code>timeout.rs</code> 短旗標漏 <code>k += 1</code> → <code>timeout -p 0.2 sleep 30</code> 無限迴圈燒滿 guest，被外层 timeout 收掉；代價＝一次重開＋一條 dev log（順帶掃全 repo 22 處同型迴圈）</td></tr>
+    <tr><td class="ok">destructive 測試全開</td><td>rm/mv/truncate/shred 的破壞路徑在 tmpfs 工作目錄亂玩，亂完就關機</td></tr>
+  </table>
+  <div class="cols3" style="margin-top:12px">
+    <div class="card"><h3>① Agent 指令執行逾時</h3><p class="small">全量回归常超過 agent 工具的指令時間上限 → 裝 pi package <code>npm:@mrclrchtr/supi-bash-timeout</code> 取消 bash 層預設逾時；長工作改背景＋輪詢 log。</p></div>
+    <div class="card"><h3>② QEMU 掛死</h3><p class="small">test binary 掛死時 qemu 自己不會結束 → 每次開機包硬逾時 <code>timeout --foreground -k 5 ${TIMEOUT_SEC:-120} "${qemu_cmd[@]}"</code>；最壞就是 TERM→KILL 整個 qemu。</p></div>
+    <div class="card"><h3>③ 平行執行 OOM</h3><p class="small">host 端 <code>ulimit</code> 限單行程虛擬記憶體；QEMU 天然 RAM 保護：每台 guest <code>-m 128M</code> → 平行度算進預算（N workers × 128M）。</p></div>
+  </div>
+  <p class="quote">同一個模式：發現一層新的失敗模式，就把防護<strong class="accent">裝進基礎設施</strong>，而不是要求 agent 更小心。</p>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2>沙箱之上的驗收：門檻不可降、報告由證據產生</h2>
+  <div class="cols">
+    <div class="card">
+      <h3>規格外部化（行為模型只從 man page）</h3>
+      <ul class="tight">
+        <li>105 份本機 mirror ＋ 10 份 web search（URL＋SHA512 登記於 SOURCES.tsv）；GNU 與 uutils 衝突以 GNU 為準</li>
+        <li>man 未定義的邊界 → 我方「決定＋記錄」進 <code>docs/assumptions.md</code>（19 節 625 行），不猜、不追参考實作逐 byte</li>
+        <li>禁止閲覧 reference source code；每個 applet 檔頭寫「規格來源＋我方決定」</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>機械式驗收</h3>
+      <ul class="tight">
+        <li>coverage ≥80% 不降門檻：不足就補測試（chroot 67.3% → 81.9%）；實際 115/115 達標、avg 91.0%</li>
+        <li>115/115 fuzz：只断言 man 可推導的不變量 — <code>date</code> epoch round-trip、<code>factor</code> 因子連乘積==n、<code>stty -g</code> 自我解析、任意垃圾不 panic</li>
+        <li><code>docs/final_report.md</code> 由 <code>scripts/gen_report.py</code> 從 logs/ 產生 → 與 checklist 逐條一致、gaps=0（寫的報告會過期，產生的報告不會）</li>
+      </ul>
+    </div>
+  </div>
+  <p class="small">最終成績：guest 全量 <b class="accent">PASS=118 / FAIL=0</b>（guest 階段僅 96 秒，-j 2 平行）；跳過清單：空。</p>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <h2>方法論 ＋ 結論</h2>
+  <ol>
+    <li><b>先建沙箱，再寫程式</b>：錯誤的價格決定 agent 能寫多大的系統</li>
+    <li><b>把沙箱接進工具鏈</b>（cargo runner 層）→「在 guest 內跑」對 agent 透明，沒有一步需要「記得去沙箱」</li>
+    <li><b>護欄也是產出的一部分</b>：指令逾時（supi-bash-timeout）、QEMU 硬逾時、ulimit＋<code>-m</code> 記憶體預算 — 發現一層失敗就裝一層</li>
+    <li><b>免 root、可搬移的 toolchain</b>：apt 依賴探索一次 → manifest.tsv（URL+SHA512）→ curl 重製 → <code>dpkg-deb -x</code> 解進 <code>.rust-env/.qemu-env/.llvm-env/.guest-env</code> → git clone ＋ setup 就能在另一台（含無 root）機器完整重現開發與驗證</li>
+    <li><b>門檻不可協商</b>：不足就補測試，不補說法；驗收全部機械化（guest PASS／coverage%／fuzz 不變量／報告由腳本產生）</li>
+    <li><b>所有進度落地成檔案</b>：goal 任務樹、checklist、assumptions、development-log（57 條）、events.jsonl、logs/*.cov.out — 58 小時跨 session 靠檔案接力，不靠上下文；委派 subagent 要契約化，長迴圈與共用資源留主行程</li>
+  </ol>
+  <p class="quote" style="margin-top:10px">
+    AI agent 寫系統程式的瓶頸不是智商，是<strong class="accent">錯誤的價格</strong>。<br>
+    把每次錯誤壓成「0.9 秒的一台可丟棄機器」之後，115 支直接操檔案、裝置、時鐘、行程的 coreutils，才能在 58 小時內安全地寫完並全數驗證。
+  </p>
+</section>
+
+</div>
+<div class="footer">
+  <span id="counter"></span>
+  <span>←/→ 或 Space 換頁 · Home/End 首末页 · 點擊頁面右側=下一頁</span>
+</div>
+<script>
+(function(){
+  const slides=[...document.querySelectorAll('section.slide')];
+  let i=0;
+  function show(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    document.getElementById('bar').style.width=((i+1)/slides.length*100)+'%';
+    document.getElementById('counter').textContent=`${i+1} / ${slides.length}`;
+  }
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight',' ','PageDown','Enter'].includes(e.key)){e.preventDefault();show(i+1);}
+    else if(['ArrowLeft','PageUp','Backspace'].includes(e.key)){e.preventDefault();show(i-1);}
+    else if(e.key==='Home')show(0);
+    else if(e.key==='End')show(slides.length-1);
+  });
+  document.addEventListener('click',e=>{
+    if(e.clientX>window.innerWidth*0.5)show(i+1);else show(i-1);
+  });
+  show(0);
+})();
+</script>
+</body>
+</html>

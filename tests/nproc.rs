@@ -125,3 +125,36 @@ fn help_and_version() {
     assert!(h.ends_with("they will determine the minimum and maximum returned value respectively.\n"));
     assert_eq!(t::run("nproc", &["--version"], "").out(), "nproc (uutils coreutils) 0.10.0\n");
 }
+
+#[test]
+fn fuzz_invariants() {
+    // 不變量：nproc 基礎值 N；--ignore k（合法）→ max(0, N-k)；非法 ignore → rc 2；
+    // 任意組合的成功輸出恆為單一數字 token。
+    let n: i64 = t::run("nproc", &[], "").out().trim().parse().expect("nproc base");
+    assert!(n >= 1);
+    let mut st: u64 = 0x4C21_9AC0;
+    for _ in 0..50 {
+        st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let k = ((st >> 30) % 10) as i64;
+        let mode = (st >> 50) % 3;
+        match mode {
+            0 => {
+                let r = t::run("nproc", &["--ignore", &k.to_string()], "");
+                assert_eq!(r.code, 0);
+                let v: i64 = r.out().trim().parse().expect("nproc ignore");
+                assert_eq!(v, (n - k).max(1), "ignore {k}"); // 我方 E3 決定：下限 1
+            }
+            1 => {
+                let all = t::run("nproc", &["--all"], "");
+                assert_eq!(all.code, 0);
+                assert_eq!(all.out().trim().parse::<i64>().unwrap(), n);
+            }
+            _ => {
+                let bad = ["abc", "", "-1x", "1.5"][((st >> 20) % 4) as usize];
+                let r = t::run("nproc", &["--ignore", bad], "");
+                assert!(r.code == 2 || r.code == 1, "bad {bad:?} -> {} err={}", r.code, r.err());
+                assert_eq!(r.out(), "");
+            }
+        }
+    }
+}

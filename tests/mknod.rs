@@ -338,3 +338,65 @@ fn run_bin_dispatch() {
     assert_eq!(h.code, 0);
     assert!(h.out().contains("Create the special file NAME of the given TYPE."));
 }
+
+fn pick_mode(st: u64) -> u64 {
+    (st >> 50) % 4
+}
+
+#[test]
+fn fuzz_invariants() {
+    // 不變量：合法 (type[,major,minor]) 建立對應檔案類型；非法參數 → rc∈{1,2} 且不建立檔案；
+    // 重複建立同名 → rc1 EEXIST、既有檔案不受影響。
+    use std::os::unix::fs::FileTypeExt;
+    let dir = fresh("fuzz");
+    let mut st: u64 = 0xDAD10DE5;
+    for i in 0..60u32 {
+        st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let name = format!("n{i}");
+        let path = dir.join(&name);
+        // 我方決定：mode0 只測 FIFO（c/b 需要 major/minor，mode1 才測）；mode3 用 c 測非法 major
+        let kind = match pick_mode(st) {
+            0 => "p",
+            3 => "c",
+            _ => ["c", "b"][(st >> 40) as usize % 2],
+        };
+        let major = ((st >> 20) % 512).to_string();
+        let minor = ((st >> 10) % 512).to_string();
+        let mode = pick_mode(st);
+        let full = path.display().to_string();
+        let args: Vec<String> = match mode {
+            0 => vec![full.clone(), kind.to_string()],
+            1 => vec![full.clone(), kind.to_string(), major.clone(), minor.clone()],
+            2 => vec![full.clone(), "x".to_string()],
+            _ => vec![full.clone(), kind.to_string(), "-3".to_string(), minor.clone()],
+        };
+        let r = t::run("mknod", &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "");
+        match mode {
+            0 | 1 => {
+                assert_eq!(r.code, 0, "{:?}", args);
+                let md = std::fs::metadata(&path).expect("metadata");
+                let ft = md.file_type();
+                match kind {
+                    "p" => assert!(ft.is_fifo()),
+                    "c" => assert!(ft.is_char_device()),
+                    _ => assert!(ft.is_block_device()),
+                }
+            }
+            2 => {
+                assert!(r.code == 1 || r.code == 2, "{:?} -> {}", args, r.code);
+                assert!(!path.exists(), "{:?}", args);
+            }
+            _ => {
+                assert!(r.code == 1 || r.code == 2, "{:?} -> {}", args, r.code);
+            }
+        }
+    }
+    // 重複 EEXIST（先確保 n0 存在）
+    let n0 = dir.join("n0").display().to_string();
+    let first = t::run("mknod", &[n0.as_str(), "p"], "");
+    assert_eq!(first.code, 0, "{}", first.err());
+    let dup = t::run("mknod", &[n0.as_str(), "p"], "");
+    assert_eq!(dup.code, 255); // 我方慣例：mknod(2) 失敗 → 255 + "mknod: ...: File exists"
+    assert!(dup.err().contains("File exists"), "{}", dup.err());
+    assert!(dir.join("n0").exists());
+}

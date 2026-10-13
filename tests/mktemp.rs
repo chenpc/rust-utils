@@ -325,3 +325,36 @@ fn run_bin_dispatch() {
     assert_eq!(h.code, 0);
     assert!(h.out().contains("Create a temporary file or directory."));
 }
+
+#[test]
+fn fuzz_invariants() {
+    // 不變量：任意 -t/-p 模板組合都建立唯一路徑（每次不同、確實存在、權限 0600）；
+    // 非法模板（無 XXX）→ rc1 + man 措辭、不建立檔案。
+    let dir = fresh("fuzz");
+    let mut st: u64 = 0x7E570D0D;
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for _ in 0..40u64 {
+        st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let use_p = (st >> 50) % 2 == 0;
+        let stem = format!("t{:04x}", (st >> 12) % 65536);
+        let (args, expect_dir) = if use_p {
+            (vec!["-p".to_string(), dir.display().to_string(), format!("{stem}XXXXXX")], dir.clone())
+        } else {
+            (vec![format!("{}/{}XXXXXX", dir.display(), stem)], dir.clone())
+        };
+        let argsv: Vec<&str> = args.iter().map(|s: &String| s.as_str()).collect();
+        let r = t::run("mktemp", &argsv, "");
+        assert_eq!(r.code, 0, "{stem} {}", r.err());
+        let out = r.out().trim().to_string();
+        assert!(!seen.contains(&out), "duplicate {out}");
+        seen.insert(out.clone());
+        let p = std::path::PathBuf::from(&out);
+        let np = if p.is_relative() { expect_dir.join(&out) } else { p };
+        assert!(np.exists(), "{np:?}");
+        let mode = std::fs::metadata(&np).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{out} mode {mode:o}");
+    }
+    let bad = t::run("mktemp", &["-t", "NOPLACEHOLDER"], "");
+    assert_eq!(bad.code, 1);
+    assert!(bad.err().contains("too few X's in template 'NOPLACEHOLDER'"), "{}", bad.err());
+}

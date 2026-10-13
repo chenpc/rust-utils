@@ -97,3 +97,53 @@ fn e2e_binary_dispatch() {
     let r = t::run_bin("whoami", &["--version"], "");
     assert_eq!((r.code, r.out().as_str()), (0, "whoami (uutils coreutils) 0.10.0\n"));
 }
+
+#[test]
+fn fuzz_invariants() {
+    // 不變量：whoami 的輸出恆為單一 token（有效使用者名）、rc 0；任意無效旗標 rc 2；
+    // 任何選項組合（-h/-V 除外）不改變身份輸出。
+    // 同 binary 的其他測試會併發增刪 /etc/passwd；先寫回 root 並重試以避開競態。
+    let mut base = run(&[]);
+    for _ in 0..4 {
+        if base.code == 0 {
+            break;
+        }
+        std::fs::create_dir_all("/etc").unwrap();
+        std::fs::write("/etc/passwd", "root:x:0:0:root:/root:/bin/sh\n").unwrap();
+        base = run(&[]);
+    }
+    assert_eq!(base.code, 0, "{}", base.err());
+    let name = base.out().trim().to_string();
+    assert!(!name.is_empty() && !name.contains(' '), "{name}");
+    let mut st: u64 = 0xF10A_1E1E;
+    for _ in 0..60 {
+        st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let pool = ["--help", "--version", "-h", "-V", "--", "x", "-q", "--bogus", "-z"];
+        let a1 = pool[((st >> 30) % 9) as usize];
+        let a2 = pool[((st >> 20) % 9) as usize];
+        let r = run(&[a1, a2]);
+        match r.code {
+            0 => {
+                // help/version 或純身份輸出
+                let o = r.out();
+                assert!(
+                    o.trim() == name || o.contains("Usage: whoami") || o.starts_with("whoami (uutils"),
+                    "{a1} {a2}: {o:?}"
+                );
+            }
+            2 => {
+                assert_eq!(r.out(), "", "{a1} {a2}");
+                assert!(r.err().starts_with("error: "), "{a1} {a2}: {:?}", r.err());
+            }
+            1 => {
+                // whoami 家族：unknown/operand → rc1，零 stdout
+                assert_eq!(r.out(), "", "{a1} {a2}: {}", r.err());
+            }
+            c => panic!("unexpected rc {c} for {a1} {a2}"),
+        }
+    }
+    // 有效長旗標前綴不改變輸出（我方 resolve_long 慣例）
+    let r = run(&["--vers"]);
+    assert_eq!(r.code, 0);
+    assert!(r.out().starts_with("whoami (uutils"), "{}", r.out());
+}

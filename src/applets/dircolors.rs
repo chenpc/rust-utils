@@ -504,7 +504,7 @@ fn unexpected(arg: &str, stderr: Out) -> i32 {
     // clap：未知長選項若為已知長選項的前綴 → 給 similar tip；否則給 value tip
     let tip = if let Some(short) = arg.strip_prefix("--") {
         match DIRCOLORS_LONGS.iter().find(|l| l.starts_with(short)) {
-            Some(l) => format!("  tip: a similar argument exists: '--{}'", l),
+            Some(l) => format!("tip: a similar argument exists: '--{}'", l),
             None => format!("  tip: to pass '{}' as a value, use '-- {}'", arg, arg),
         }
     } else {

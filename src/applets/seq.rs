@@ -1841,7 +1841,7 @@ mod tests {
         );
         let l2 = dec_parse("0.2999999999999999").unwrap();
         assert_eq!(l2.scaled(16), Some(2999999999999999));
-        assert_eq!(dec_parse("1e20").unwrap().scaled(0), Some(1000000000000000000));
+        assert_eq!(dec_parse("1e20").unwrap().scaled(0), Some(100_000_000_000_000_000_000));
     }
 
     #[test]

@@ -72,3 +72,32 @@ fn run_bin_dispatch() {
     assert_eq!(out.code, 0);
     assert_eq!(out.out(), "x86_64\n");
 }
+
+#[test]
+fn fuzz_invariants() {
+    // 不變量：arch 成功路徑恆印同一 machine 字串（uname -m 語義，不因旗標而變）；
+    // rc ∈ {0,2}；rc2 恆零輸出。
+    let base = t::run("arch", &[], "");
+    assert_eq!(base.code, 0);
+    let machine = base.out().trim().to_string();
+    assert!(!machine.is_empty() && !machine.contains(' '));
+    let mut st: u64 = 0xAAC4_15F0;
+    for _ in 0..50 {
+        st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let pool = ["--help", "-h", "--version", "-V", "--", "junk", "--hel", "--vers", "-a"];
+        let a1 = pool[((st >> 30) % 9) as usize];
+        let a2 = pool[((st >> 20) % 9) as usize];
+        let r = t::run("arch", &[a1, a2], "");
+        assert!(matches!(r.code, 0 | 1 | 2), "{a1} {a2} -> {}", r.code); // 家族慣例：operand/未知旗標 rc1
+        if r.code == 0 {
+            let o = r.out().trim().to_string();
+            assert!(
+                o == machine || o.contains("Usage: arch") || o.starts_with("arch (uutils"),
+                "{a1} {a2}: {o:?}"
+            );
+        } else {
+            assert_eq!(r.out(), "", "{a1} {a2}");
+            assert!(r.err().starts_with("error: "), "{a1} {a2}: {:?}", r.err());
+        }
+    }
+}

@@ -120,7 +120,7 @@
 
 ## D 群叢集 2（stat/chmod/chown/chgrp/touch）
 - `stat` 預設**不追隨** symlink（uutils 行徑；GNU 預設追隨）。以 man page 無法區分，追隨參考 binary 實測。
-- `stat` 實作用 statx(2)（syscall 332）；错误措辭 `cannot statx '…'`。`%t`/`%T`（檔案系統 magic/type）在檔案模式下一律印 `0`（參考未做 statfs）；`%B` 固定 512；`%H` 印 `?`；`-f --format` 的 `%p` 印 `?`（參考未實作）。
+- `stat` 實作用 statx(2)（syscall 332）；錯誤措辭 `cannot statx '…'`。`%t`/`%T`（檔案系統 magic/type）在檔案模式下一律印 `0`（參考未做 statfs）；`%B` 固定 512；`%H` 印 `?`；`-f --format` 的 `%p` 印 `?`（參考未實作）。
 - `stat -f` 為布林（不吃參數）；FS 型別名稱查 magic 表，ext4(0xEF53) 顯示 `ext2/ext3`（參考命名）。Device 欄為十進位 `major,minor`（GNU 為 hex）。
 - `chmod` 省略 who 時 `perms & ~umask`（umask 於行程內即時探測）；裸 `t`/`s` 被參考拒絕 → 本實亦拒絕（GNU 接受）。`-f` 靜默但 exit code 仍 1（GNU 會歸 0）→ 不追 GNU。
 - `chown`/`chgrp`：`--reference` 存在時所有 positional 均視為 FILE（clap 語意，wrapper 層模擬）；參考取得 reference 失敗 → `failed to get attributes of '<f>': <reason>`。
@@ -490,3 +490,136 @@ coverage（門檻 80）arch 84.44%、uname 80.68%、nproc 84.54%、users 82.96%�
 `tests/nohup.rs`(14)、`tests/nice.rs`(12)、`tests/timeout.rs`(18)、`tests/chroot.rs`(20) 全綠；
 coverage（門檻 80）nohup 83.02%、nice 83.20%、timeout 84.15%、chroot 81.86%。
 全量迴歸 `./scripts/test_all.sh -j 4` → `PASS=110 FAIL=0`。
+
+## E5 叢集：stdbuf / tty / runcon / factor
+
+### stdbuf（**不重現緩衝行為**）
+- 本專案的 guest initramfs 沒有動態載入器，也沒有 `libstdbuf.so`，因此**不使用
+  `LD_PRELOAD`**：`stdbuf` 只負責解析/驗證 MODE、設定環境變數 `_STDBUF_I` / `_STDBUF_O` /
+  `_STDBUF_E`，再另開行程執行 COMMAND。實際緩衝模式是否生效取決於被 exec 的程式本身
+  是否理會這三個變數（與 GNU 的差異記錄在此）。
+- 執行模型同 E4：`std::process::Command` 另開行程（不用 execve，因為測試走 in-process
+  `t::run`，exec 會取代 test binary）；指令找不到 → 127
+  `stdbuf: failed to execute process: No such file or directory`，找到但不可執行 → 126
+  `...: Permission denied`；子行程 exit code 直接傳承。
+- MODE 文法依本機參考實測（`stdbuf -o MODE env` 讀 export 值確認）：`L` 與純數字原樣 export；
+  後綴 `k m g t p e y z`（大小寫不拘）= 1024ⁿ、大寫 `B` 系（`KB`/`kB`）= 1000ⁿ、`b` = 512；
+  數字可省略（`K` = 1024、`KB` = 1000、`b` = 512）；`0x`/`0b`/前導 0 各為 16/2/8 進位
+  （`010`→8、`012k`→10240）；`18446744073709551615` 可、更大 → `stdbuf: invalid mode <X>: Value too large for defined data type`（125）。
+  拒絕組合：`1kb`、`0kk`、`0b2`、`1.5`、`+1`、`L0`、空字串、`17E`/`1Y`/`1y`；
+  多位數且值 0 且有後綴（`00k`）亦拒絕，但 `01k`（八進 1）可。
+  錯誤訊息的引號規則：首位是數字、長度 ≥2、末字元是認可 unit 時**不加**引號（`00k`、`08k`），
+  其餘加單引號。
+- `-i L` → `stdbuf: line buffering stdin is meaningless`（125，附 tip 行）。
+
+### tty
+- 是 tty 時印 `/dev/pts/...` 名稱且**不附換行**（GNU 行為），非 tty 時印 `not a tty` + 換行（rc 1）。
+- clap 錯誤 rc = 2，且 tty 的 clap 錯誤**沒有** `tip:` 行（只有 Usage + For more）。
+- 未知短旗標逐字元報，且 `-0`/`-00`/`-s0` 這類顯示成 `0`（不帶 dash）——共用
+  `pathname::clap_unknown_short(token, k)`。
+
+### runcon（guest 無 SELinux）
+- 本機與 guest 都沒有 `/sys/fs/selinux`（`/proc/self/attr/current` 讀到 `unconfined`），
+  因此**沒有實際 label transition 可測**：有 COMMAND 一律
+  `runcon: runcon may be used only on a SELinux kernel`（rc 1）。
+- 沒有 COMMAND 時（含帶 `-c/-u/-r/-t/-l` 旗標）一律印**目前** context + 換行（rc 0）；
+  本機參考實測旗標不會改變這行輸出。
+- 沒有旗標且有 COMMAND 時，operand[0] 是 CONTEXT、operand[1] 才是 COMMAND；只有 CONTEXT →
+  `runcon: No command is specified`（rc 1）。
+- `compute_context()` 以現有 context 為基底，用 `:` 切 4 欄後替換給定欄、去掉尾端空欄
+  （寫入 `/proc/self/attr/{user,role,type,range}` 的路徑因無 SELinux 檔案系統而不可達，無測試）。
+
+### factor（自寫任意精度分解，不引入新依賴）
+- `src/applets/factor.rs` 自寫：`BASE = 1 << 32` 的 `BigU`（LSB-first limbs）、小質數（2..997）試除、
+  u64 決定性 Miller–Rabin（bases 2..37）、`BigU` Miller–Rabin、Pollard–Brent（u64 `m=64`、`BigU` `m=32`）。
+- `mul_mod` 用 schoolbook 完整乘積 + Knuth **Algorithm D**（u128 估商/減法、`debt = -(d >> 32)` 的借位慣例）；
+  u64 可容納時走 `mul_mod64`，單肢走 u128。先前的逐位加倍版本在 84-bit 模數上要 ~1e9 word ops → 31 位輸入 TIMEOUT；
+  換成 Algorithm D 後 40 位輸入 1.1s、41 位半質數（1797693134862315907729305190789024733617976975931）在 guest 2.77s 內完成。
+- **不重現** GNU 的放棄行為：本機參考對極難合成數（如 58 位、含 52 位難合成因子）會在約 19s 後
+  印部分因子並 `factor: Factorization incomplete. Remainders exists.`（rc 1）；我方**無迭代預算上限**，
+  會繼續算到完成（正確性優先）。這是記錄在案的偏差。
+- 因子正確性以獨立 Python oracle（MR + Pollard rho）對 16 個輸入逐一核對，mine == ref == oracle。
+- `factor` 的 clap rc = **1**（不是 125）；短旗標只有 `-h`（`--help`）與 `-V`，
+  **沒有** `-e`（`--exponents` 無短形）；`--exponents` 可重複不報錯；
+  不需要值的旗標附了值 → `error: unexpected value '<v>' for '--<long>' found; no more were expected`。
+- 非正整數 token → `factor: '<token>' is not a valid positive integer`（rc 1，後面的 token 仍繼續處理）；
+  `+7`/`007` 接受並正規化成 `7`；`-1`/`-1x` 被當成旗標（clap 錯誤，非 invalid token）。
+
+### clap 的 fuzzy long tip（**不重現**）
+- 本專案以 `pathname::resolve_long` 實作 clap `infer_long_args`：**精確名**與**唯一前綴**都對齊
+  （`--outpu L` → `error: unexpected value 'L' for '--output <MODE>' found; no more were expected`、
+  `--comp`/`--ran` → 解析為 `--compute`/`--range`）。
+- 但本機參考對「**非前綴**、只是編輯距離很近」的長旗標會多印一行 `tip: a similar argument exists: '--<x>'`：
+  實例 `tty --silnt`→`--silent`、`stdbuf --iput`→`--input`、`stdbuf --inputt`→`--input`、
+  `stdbuf --outpt`→`--output`、`runcon --userr`→`--user`、`uname --alll`→`--all`、
+  `factor --verr`→`--version`、`factor --bog`→`--help`。
+  同距離的另一側卻**不給** tip：`stdbuf --bogus`、`tty --xyz`、`factor --expx`、`uname --usr`、`runcon --usr`；
+  且 `ls --column=1` 的 tip 是 `--l`（候選清單含带 metavar 的旗標）。
+- 規則随 clap 版本與各 applet 旗標清單而變、實測不一致 → 記錄為已知分歧；我方對這類 token
+  一律走 `tip: to pass '<raw>' as a value, use '-- <raw>'`。
+- 同類小分歧：`--=` 本機參考印 `error: unexpected argument '--' found`（截掉 `=`），我方印 `--=`。
+
+### 本叢集 guest 結果
+
+## E6 叢集：stty / pr / pinky / date
+
+### stty（src/applets/stty.rs）
+- 一律透過 `tcgetattr`/`tcsetattr`（`src/sys.rs` 新增 pub termios 常數與 TCSADRAIN ioctl）；
+  測試用 `-F /dev/ttyS0`（guest devtmpfs 有 ttyS0），不碰 test binary 自己的 stdin tty。
+- 裸 `stty`（無選項）：印 `speed <ospeed> baud;`（guest 實際值 115200）。
+- `-a`：三行（speed 行 / flags 行 `NAME=on|off` / cchars 行 `NAME=0xNN`）。
+- `-g`：單一可自我解析行（`stty -g | stty` round-trip 為不變量測試）。
+- presets：`raw`（清 ICANON|ISIG|ECHO|ECHONL|IEXTEN 等）、`cooked`、`sane`（含 cchars
+  ^C=0x03 等还原值）；`--all`/`--gargs`/`--save` 為 -a/-g 長形。
+- 設定寫入失敗/未知設定 → rc 1：`stty: unknown setting '<x>'`；clap 錯誤 rc 2。
+- `-echo` 這類「負號設定」不是短旗標集群：token 去 dash 後若為已知設定名（FLAGS 表或 preset）
+  即視為設定（我方決定；GNU 亦如此）。
+
+### pr（src/applets/pr.rs）
+- man 只給輪廓，以下 pagination 語義為我方決定：header = 5 行（`{date}  (page N)`、標題、3 空行），
+  trailer = 5 空行；text 區 = L-10（預設 L=66 → 56 行）；`-F`：header 3 行 + form-feed trailer、
+  text = L-4（預設 63）；L≤10（`-F` 時 ≤4）→ 不印 header/trailer。
+- 預設 `-W`=72 且單欄截斷，除非 `-J`（join，不截斷、TAB 相接）。
+- 多欄基礎寬：`-w` 指定；否則有 `-s` 時 512、再否則 72；col = (base-(n-1))/n。
+- 欄填充預設直式（down-fill），`-a` 橫式（left-to-right）。
+- 輸入行以 `\u{0C}`（form feed）結尾 → 強制換頁；`-T` 關閉此行為並同時關 header/trailer。
+- 行號：左補空到寬度、溢出保留右側數字（`-n2 -N999998` 第 3 行 → `98\t`）；
+  `--pages` 跳過的頁**不消耗** -N 計數器；頁碼每檔重新計算。
+- `-S` 在 `--column` 模式無效（依 man 文字）；merge（`-m`）欄寬 = width/k，無 `-S` 時以補齊空格相接。
+- 標題預設 = 檔名以空格相連；`-h TITLE` 取代。日期格式預設 `%b %e %H:%M %Y`（我方決定）。
+
+### pinky（src/applets/pinky.rs）
+- 資料源：utmp（`/var/run/utmp`，384-byte record）+ 自行解析 `/etc/passwd`（不用 NSS）。
+- 短格式欄寬：USER(9)、TTY(9)、IDLE(6)、TIME(17)，整行 rtrim；USER 名稱截到 8 字元＋空格
+  以維持對齊（我方決定）；USER 值 = gecos 第一段（`-w` 時用 login name）。
+- `-i` 去 USER 與 host；`-q` 再去 IDLE；`-s` 覆蓋 `-l`。
+- 長格式區塊：`Login name: `／`In real life: `／`Directory: `／`Shell: `／`On since <ts> (UTC) on <tty> (<host>)`
+  ／`Project:`／`Plan:`（`-b`/`-h`/`-p` 各自省略 project/（host 於短格式）/plan）；使用者之間空一行。
+- `-h` 依 man 是「omit project field」不是 help（help 只有 `--help`）；未知使用者 operand →
+  `pinky: unknown user '<op>'`（rc 1）；clap 錯誤 rc 2。
+- gecos 的逗号分段：passwd 欄位以 **colon** 分隔；gecos 內部逗號僅用於取第一段作顯示名。
+
+### date（src/applets/date.rs）
+- 預設輸出格式 `%a %b %e %H:%M:%S %Z %Y`（我方決定，GNU 形狀）。
+- TZ 只支援 `UTC`/`GMT` 與固定偏移（`±HH`、`±HHMM`、`±HH:MM`）；其他名稱（guest 無 tzdata）
+  退回系統 local。`%Z`：offset 0 → `UTC`，否則 POSIX 式 `<±HH:MM>`。
+- 可解析的 date 字串（我方決定子集）：`@epoch`、`YYYY-MM-DD`、`YYYY-MM-DD[T ]HH:MM[:SS][.frac]`
+  ＋可選 `Z|±HH[:]MM` 後綴、純 `HH:MM[:SS]`（今天）、`today|yesterday|tomorrow`；
+  其他一律 `date: invalid date '<s>'`（rc 1）。
+- 日曆用公開算法（Howard Hinnant civil_from_days / days_from_civil）；ISO 週以「含 1/4 的
+  那一週的星期四」為 week 1 基準。
+- `--resolution` 固定印 `0.000000001`（std 無法探測實時鐘解析度，我方決定）。
+- `-s` 走 `settimeofday(2)`（guest 為 root 可成功）；失敗 → `date: cannot set date: <reason>`（rc 1）。
+- 同時給 -d/-f/-r：全部展開依序輸出，-f 先 -d 後 -r 最後（我方決定）；clap 錯誤 rc 2。
+- `--debug`：每筆解析成功對 stderr 印一行 `date: parsed '<s>' as epoch <E>`（我方簡化決定）。
+- `@epoch` 是絕對時刻：只定 epoch，顯示偏移仍由 `-u`/TZ/local 決定（不強制 UTC）。
+- 裸字串（無時區後綴）的解譯用「TZ 固定偏移 → 否則系統 local」；`-u` 則以 UTC 解譯。
+- 支援 `--format=<F>` 長旗標與 `-I=<FMT>`/`-I<FMT>` 兩種附值形（man EXAMPLES 有 `--format`）。
+- 輸出來源優先序：positional FORMAT / `--format` > `-I` > `--rfc-3339` > `-R` > 預設格式。
+- 短/長同旗標不互相報 dup（`-R --rfc-email` 可併用）；只有相同長旗標重複才報 dup（rc 2）。
+- `resolve_long` 慣例延續：唯一前綴直接接受（`--univer` → `--universal`）；歧義前綴 →
+  `tip: a similar argument exists: '--<候選>'`（`--r` → `--reference`）。
+- `%C` 不補零（值本來 2 位）；`%N` 的寬度是精度（`%3N`）不是補齊寬度。
+- DATEFILE 中 `#` 起頭的行視為註解跳過（man 未定義 DATEFILE 格式，我方決定）；空行跳過。
+- `-I seconds`（以空格分開）不會吃掉下一 token：該 token 依 clap 慣例成 positional FORMAT
+  （我方決定；要 FMT 請用 `-I=seconds` 或 `-Iseconds`）。

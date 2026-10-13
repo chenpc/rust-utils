@@ -40,13 +40,7 @@ pub const STDOUT_FD: i32 = 1;
 
 // tcsetattr actions
 pub const TCSANOW: i32 = 0;
-// c_lflag bits
-const ICANON: u32 = 0o0002;
-const ECHO: u32 = 0o0010;
-const ISIG: u32 = 0o0001;
-// c_cc indices
-const VTIME: usize = 5;
-const VMIN: usize = 6;
+// termios 位元／c_cc 索引常數見檔案尾「stty 用的 termios 常數」區（pub）。
 
 /// 進入 raw mode（交還給呼叫端還原）。失敗回原值（非 tty 時呼叫端應回退）。
 pub fn raw_mode(fd: i32) -> Option<Termios> {
@@ -515,3 +509,115 @@ pub fn tty_name() -> Option<String> {
     }
     Some(unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
 }
+
+// ---- stty 用的 termios 常數與視窗大小 ----
+// 值取自 <termios.h>（glibc x86_64），非 coreutils source。
+pub const IGNBRK: u32 = 0o0000001;
+pub const BRKINT: u32 = 0o0000002;
+pub const IGNPAR: u32 = 0o0000004;
+pub const PARMRK: u32 = 0o0000010;
+pub const INPCK: u32 = 0o0000020;
+pub const ISTRIP: u32 = 0o0000040;
+pub const INLCR: u32 = 0o0000100;
+pub const IGNCR: u32 = 0o0000200;
+pub const ICRNL: u32 = 0o0000400;
+pub const IXON: u32 = 0o0002000;
+pub const IXOFF: u32 = 0o0010000;
+pub const IXANY: u32 = 0o0004000;
+
+pub const OPOST: u32 = 0o0000001;
+pub const ONLCR: u32 = 0o0000004;
+pub const OCRNL: u32 = 0o0000010;
+pub const ONOCR: u32 = 0o0000020;
+pub const ONLRET: u32 = 0o0000040;
+
+pub const CSIZE: u32 = 0o0000060;
+pub const CS5: u32 = 0o0000000;
+pub const CS6: u32 = 0o0000020;
+pub const CS7: u32 = 0o0000040;
+pub const CS8: u32 = 0o0000060;
+pub const CSTOPB: u32 = 0o0000100;
+pub const CREAD: u32 = 0o0002000;
+pub const PARENB: u32 = 0o0004000;
+pub const PARODD: u32 = 0o0010000;
+pub const HUPCL: u32 = 0o0020000;
+pub const CLOCAL: u32 = 0o0040000;
+
+pub const ISIG: u32 = 0o0000001;
+pub const ICANON: u32 = 0o0000002;
+pub const XCASE: u32 = 0o0000004;
+pub const ECHO: u32 = 0o0000010;
+pub const ECHOE: u32 = 0o0000020;
+pub const ECHOK: u32 = 0o0000040;
+pub const ECHONL: u32 = 0o0000100;
+pub const NOFLSH: u32 = 0o0000200;
+pub const TOSTOP: u32 = 0o0000400;
+pub const IEXTEN: u32 = 0o0040000;
+
+pub const VINTR: usize = 0;
+pub const VQUIT: usize = 1;
+pub const VERASE: usize = 2;
+pub const VKILL: usize = 3;
+pub const VEOF: usize = 4;
+pub const VTIME: usize = 5;
+pub const VMIN: usize = 6;
+pub const VSWTC: usize = 7;
+pub const VSTART: usize = 8;
+pub const VSTOP: usize = 9;
+pub const VSUSP: usize = 10;
+pub const VEOL: usize = 11;
+pub const VREPRINT: usize = 12;
+pub const VDISCARD: usize = 13;
+pub const VWERASE: usize = 14;
+pub const VLNEXT: usize = 15;
+pub const VEOL2: usize = 16;
+
+pub const TCSADRAIN: i32 = 1;
+
+/// winsize（TIOCGWINSZ ioctl）。回 (rows, cols)；非 tty 時 None。
+pub fn tty_winsize(fd: i32) -> Option<(u16, u16)> {
+    extern "C" {
+        #[link_name = "ioctl"]
+        fn c_ioctl(fd: i32, req: u64, ...) -> i32;
+    }
+    const TIOCGWINSZ: u64 = 0x5413;
+    #[repr(C)]
+    struct Winsize {
+        rows: u16,
+        cols: u16,
+        x: u16,
+        y: u16,
+    }
+    let mut ws = Winsize { rows: 0, cols: 0, x: 0, y: 0 };
+    let rc = unsafe { c_ioctl(fd, TIOCGWINSZ, &mut ws as *mut Winsize) };
+    if rc != 0 {
+        return None;
+    }
+    Some((ws.rows, ws.cols))
+}
+
+/// tcgetattr 薄封裝（stty 用）。
+pub fn termios_get(fd: i32) -> io::Result<Termios> {
+    let mut t = Termios {
+        c_iflag: 0,
+        c_oflag: 0,
+        c_cflag: 0,
+        c_lflag: 0,
+        c_line: 0,
+        c_cc: [0; 32],
+        c_ispeed: 0,
+        c_ospeed: 0,
+    };
+    if unsafe { tcgetattr(fd, &mut t) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(t)
+}
+
+pub fn termios_set(fd: i32, t: &Termios) -> io::Result<()> {
+    if unsafe { tcsetattr(fd, TCSADRAIN, t) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
